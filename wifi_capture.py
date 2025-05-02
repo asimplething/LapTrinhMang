@@ -1,16 +1,29 @@
 import subprocess
 import time
 import os
+import platform
+import sys
+
+# Kiểm tra hệ điều hành đang sử dụng
+system_type = platform.system()
+
+if system_type == "Window":
+    interface = "Wifi" # Thay bằng tên giao diện Wifi của bạn
+    dumpcap_path = "C:/Program Files/Wireshark/dumpcap.exe"  # Để nguyên nếu dumpcap đã được thêm vào PATH
+elif system_type == "Linux":
+    interface = "wlp3s0"
+    dumpcap_path = "/usr/bin/dumpcap"
+else:
+    raise Exception(f"Hệ điều hành không được hỗ trợ: {system_type}")
+    
 
 # Cấu hình
-interface = "Wi-Fi"  # Thay bằng tên giao diện Wi-Fi của bạn (ví dụ: 'Wi-Fi' trên Windows, 'wlan0' trên Linux)
 capture_duration = 10  # Thời gian bắt gói tin (giây)
 output_file = "content/wifi_capture.pcapng"  # Tên file đầu ra
 
 # Đường dẫn đến dumpcap (thay đổi nếu cần)
 # Linux: thường là /usr/bin/dumpcap
 # Windows: thường là C:\Program Files\Wireshark\dumpcap.exe
-dumpcap_path = "C:/Program Files/Wireshark/dumpcap.exe"  # Để nguyên nếu dumpcap đã được thêm vào PATH
 
 def capture_wifi_packets():
     try:
@@ -30,7 +43,7 @@ def capture_wifi_packets():
             "-i", interface,
             "-a", f"duration:{capture_duration}",
             "-w", output_file,
-            "-n"
+            "-F", "pcapng"
         ]
         
         # Chạy lệnh dumpcap
@@ -55,7 +68,10 @@ def capture_wifi_packets():
 
 if __name__ == "__main__":
     # Kiểm tra quyền admin (Linux yêu cầu sudo cho dumpcap)
-    if os.name == "posix" and os.geteuid() != 0:
+    if system_type == "Linux" and os.geteuid() != 0:
         print("Vui lòng chạy script với quyền root (sudo).")
+        sys.exit(1)
     else:
         capture_wifi_packets()
+        if not success:
+            sys.exit(1)
