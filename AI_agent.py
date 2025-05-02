@@ -6,9 +6,16 @@ from autogen_ext.models.openai import OpenAIChatCompletionClient
 from pydantic import BaseModel
 from typing import Literal
 import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Đường dẫn tới file PCAPNG
 file_path = "./content/wifi_capture.pcapng"
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    raise ValueError("API_KEY not found in environment variables.")
 
 # Quy định giới hạn băng thông mạng của hệ thống
 minimum_network_limit = "3 Mbs"  # giới hạn băng thông toàn hệ thống mạng
@@ -94,7 +101,7 @@ async def run_AIagent(assistant, data_chunks):
 # Cấu hình model AI
 model_client = OpenAIChatCompletionClient(
     model="gemini-2.0-flash",
-    api_key="",
+    api_key=GEMINI_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
