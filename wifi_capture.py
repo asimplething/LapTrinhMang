@@ -29,6 +29,7 @@ def capture_wifi_packets():
             dumpcap_path,
             "-i", interface,
             "-a", f"duration:{capture_duration}",
+            "-c", "4000",
             "-w", output_file,
             "-n"
         ]
