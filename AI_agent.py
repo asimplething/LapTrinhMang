@@ -94,7 +94,7 @@ async def run_AIagent(assistant, data_chunks):
 # Cấu hình model AI
 model_client = OpenAIChatCompletionClient(
     model="gemini-2.0-flash",
-    api_key="AIzaSyBZxi0yshFDFuFYgzYDcO9weWf71R8QhmY",
+    api_key="",
     model_capabilities={
         "vision": True,
         "function_calling": True,
