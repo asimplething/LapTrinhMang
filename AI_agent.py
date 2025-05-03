@@ -14,6 +14,8 @@ load_dotenv()
 file_path = "./content/wifi_capture.pcapng"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("API_KEY not found in environment variables.")
 
@@ -31,9 +33,18 @@ server_ip_list = ["192.168.1.10", "192.168.1.11"]
 # Số lượng gói tin mỗi phần
 chunk_size = 100
 
-class Response(BaseModel):
-    Tình_trạng: Literal["Tốt", "Đáng ngờ", "Bị tấn công", "Nghẽn mạng", "Mạng sập"]
-    Đánh_giá: str
+system_message_template=f"""Bạn là trợ lý AI chuyên phân tích dữ liệu mạng từ một tệp PCAPNG. Nhiệm vụ của bạn là phân tích từng phần của tệp PCAPNG, với mỗi phần được chia theo số lượng gói tin (không theo thời gian 1 giây). Hãy đọc và xử lý thông tin từ các phần này. Khi đạt đến phần cuối cùng, hãy đánh giá tổng quan toàn bộ dữ liệu và trả về kết quả theo định dạng đã định sẵn.
+                            Hãy tuân thủ các quy tắc sau:"
+                            - Dựa vào giới hạn tốc độ mạng của hệ thống, với băng thông tối đa là {maximum_network_limit} và tối thiểu là {minimum_network_limit}."
+                            - Phân tích các địa chỉ IP, lưu lượng mạng, và các dấu hiệu bất thường trong gói tin để đưa ra kết luận chính xác."
+                            - Kết quả cuối cùng phải bao gồm:"
+                                Tình trạng: Một trong các giá trị: 'Tốt', 'Đáng ngờ', 'Bị tấn công', 'Nghẽn mạng', hoặc 'Mạng sập'.
+                                Đánh giá: Một mô tả ngắn gọn về lý do dẫn đến kết luận.
+                            Lưu ý: Ở phần cuối tệp PCAPNG, BẠN CHỈ TRẢ VỀ KẾT QUẢ THEO ĐỊNH DẠNG trên và không thêm bất kỳ thông tin nào khác.
+                            Ví dụ:
+                            Tình trạng: Tốt
+                            Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+                        """
 
 # Hàm chiết xuất thông tin từ file PCAPNG
 def extract_pcap_info(pcap_file):
@@ -64,37 +75,62 @@ def split_data(data, max_packets=50):
     return chunks
 
 # Custom input function to return one chunk at a time
-async def run_AIagent(assistant, data_chunks):
+async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks):
     current_chunk_index = 0
     results = []
     # Tạo thư mục log nếu chưa tồn tại
     log_dir = "log"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
-    log_file = os.path.join(log_dir, "log.txt")
-    
+
+    gemini_log_file = os.path.join(log_dir, "gemini_log.txt")
+    deepseek_log_file = os.path.join(log_dir, "deepseek_log.txt")
+    qwen_log_file = os.path.join(log_dir, "qwen_log.txt")
+
     while current_chunk_index < len(data_chunks):
         chunk = data_chunks[current_chunk_index]
-        # chunk_summary = {
-        #     "Lượng gói tin": len(chunk),
-        #     "Tổng kích cỡ": sum(pkt["size"] for pkt in chunk),
-        #     "Số lượng IP": len(set(pkt["src_ip"] for pkt in chunk) | set(pkt["dst_ip"] for pkt in chunk))
-        # }
         message = f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks)}:" \
                   f"\n - Chi tiết: \n{json.dumps(chunk, indent=4, ensure_ascii=False)}"
         print(f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks)}...")
-        result = await assistant.run(task=message)
-        results.append(result)
-        
+
+        gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
+
+         # Lưu kết quả từ cả hai mô hình
+        results.append({
+            "chunk": current_chunk_index + 1,
+            "gemini_result": gemini_result,
+            "deepseek_result": deepseek_result,
+            "qwen_result": qwen_result
+        })
+
         # Ghi log vào file log.txt
-        with open(log_file, "a", encoding="utf-8") as f:
+        with open(gemini_log_file, "a", encoding="utf-8") as f:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
-            for response in result.messages:
+            for response in gemini_result.messages:
                 if response.source == "Assistant":
                     f.write(f"Assistant: {response.content}\n")
-                    print(response.content)
+                    print("Gemini:", response.content)
             f.write("\n")
+
+        with open(deepseek_log_file, "a", encoding="utf-8") as f:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
+            for response in deepseek_result.messages:
+                if response.source == "Assistant":
+                    f.write(f"Assistant: {response.content}\n")
+                    print("Deepseek:", response.content)
+            f.write("\n")
+
+        with open(qwen_log_file, "a", encoding="utf-8") as f:
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
+            for response in qwen_result.messages:
+                if response.source == "Assistant":
+                    f.write(f"Assistant: {response.content}\n")
+                    print("Qwen:", response.content)
+            f.write("\n")
+
         current_chunk_index += 1
     return results
 
@@ -110,18 +146,48 @@ model_client = OpenAIChatCompletionClient(
     },
 )
 
+deepseek_client = OpenAIChatCompletionClient(
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com",
+    api_key=DEEPSEEK_API_KEY,
+    model_capabilities={
+        "vision": True,
+        "function_calling": True,
+        "json_output": True,
+        #"structured_output": True,
+    },
+)
+
+qwen_client = OpenAIChatCompletionClient(
+    model="opengvlab/internvl3-2b:free",
+    base_url="https://openrouter.ai/api/v1",
+    api_key=OPENROUTER_API_KEY,
+    model_capabilities={
+        "vision": True,
+        "function_calling": True,
+        "json_output": True,
+        #"structured_output": True,
+    },
+)
+
 # Thiết lập agent
-assistant = AssistantAgent(
+assistant_gemini = AssistantAgent(
     name="Assistant",
     model_client=model_client,
-    system_message=(
-        "Bạn là trợ lý AI chuyên phân tích dữ liệu mạng từ một tệp PCAPNG."
-        "Hãy phân tích thông tin được cung cấp và đưa ra kết quả về tình trạng mạng"
-        "Bạn sẽ phân tích từng phần của một tệp PCAPNG, mỗi phần được chia ra theo số gói không phải theo 1 giây, hãy đọc thông tin của các phần này và khi đạt tới phần cuối hãy đánh giá tổng quan các phần và đưa ra kết quả"
-        "Ở phần cuối tệp tin PCAPNG, BẠN SẼ KHÔNG NÓI GÌ KHÁC ngoài thông báo tình trạng mạng bằng một trong số các từ sau: Tốt, Đáng ngờ, Bị tấn công, Nghẽn mạng, Mạng sập và lý do ngắn gọn" \
-        f"Quy định để đánh giá dựa vào giới hạn tốc độ mạng của hệ thống mạng và các địa chỉ IP trong gói tin, băng thông của hệ thống mạng tối đa: {maximum_network_limit} và tổi thiểu: {minimum_network_limit}"
-    ),
-    output_content_type=Response,
+    system_message=system_message_template,
+)
+
+assistant_deepseek = AssistantAgent(
+    name="Assistant",
+    model_client=deepseek_client,
+    system_message=system_message_template,
+)
+
+assistant_qwen= AssistantAgent(
+    name="Assistant",
+    model_client=qwen_client,
+    system_message=system_message_template,
+
 )
 
 # Chiết xuất thông tin và tách ra thành các chunk
@@ -133,4 +199,13 @@ print(f"Tổng số phần dữ liệu: {len(data_chunks)}")
 
 # Start the conversation
 import asyncio
-results = asyncio.run(run_AIagent(assistant, data_chunks))
+
+async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, chunk):
+    gemini_task = assistant_gemini.run(task=chunk)
+    deepseek_task = assistant_deepseek.run(task=chunk)
+    qwen_task = assistant_qwen.run(task=chunk)
+
+    result = await asyncio.gather(gemini_task, deepseek_task, qwen_task)
+    return result
+
+results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks))
