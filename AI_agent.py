@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import Literal
 import datetime
 from dotenv import load_dotenv
-from network_evaluation import evaluate_results, generate_alert, STATUS_WEIGHTS
+from network_evaluation import evaluate_results, STATUS_WEIGHTS
 from collections import defaultdict
 import asyncio
 
@@ -90,23 +90,13 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
     gemini_log_file = os.path.join(log_dir, "gemini_log.txt")
     deepseek_log_file = os.path.join(log_dir, "deepseek_log.txt")
     qwen_log_file = os.path.join(log_dir, "qwen_log.txt")
-    log_file = os.path.join(log_dir, "network_analysis_log.txt")
 
     while current_chunk_index < len(data_chunks):
         chunk = data_chunks[current_chunk_index]
         message = f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks)}:" \
                   f"\n - Chi tiết: \n{json.dumps(chunk, indent=4, ensure_ascii=False)}"
-        print(f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks)}...")
 
         gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
-
-         # Lưu kết quả từ cả hai mô hình
-        #results.append({
-        #    "chunk": current_chunk_index + 1,
-        #    "gemini_result": gemini_result,
-        #    "deepseek_result": deepseek_result,
-        #    "qwen_result": qwen_result
-        #})
 
         # Ghi log vào file log.txt
         with open(gemini_log_file, "a", encoding="utf-8") as f:
@@ -117,7 +107,6 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
                     cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
                     f.write(f"Assistant: {cleaned_content}\n")
                     results.append(cleaned_content)
-                    #print("Gemini:", cleaned_content)
             f.write("\n")
 
         with open(deepseek_log_file, "a", encoding="utf-8") as f:
@@ -128,7 +117,6 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
                     cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
                     f.write(f"Assistant: {cleaned_content}\n")
                     results.append(cleaned_content)
-                    #print("Deepseek:", cleaned_content)
             f.write("\n")
 
         with open(qwen_log_file, "a", encoding="utf-8") as f:
@@ -139,16 +127,17 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
                     cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
                     f.write(f"Assistant: {cleaned_content}\n")
                     results.append(cleaned_content)
-                    #print("Qwen:", cleaned_content)
             f.write("\n")
         current_chunk_index += 1
-        print(results)
     return results
 
 # Cấu hình model AI
 model_client = OpenAIChatCompletionClient(
-    model="gemini-2.0-flash",
-    api_key=GEMINI_API_KEY,
+    #model="gemini-2.0-flash",
+    #api_key=GEMINI_API_KEY,
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com",
+    api_key=DEEPSEEK_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
@@ -170,9 +159,12 @@ deepseek_client = OpenAIChatCompletionClient(
 )
 
 qwen_client = OpenAIChatCompletionClient(
-    model="gemini-2.5-pro-exp-03-25",
+    #model="gemini-2.5-pro-exp-03-25",
     #base_url="https://openrouter.ai/api/v1",
-    api_key=GEMINI_API_KEY,
+    #api_key=GEMINI_API_KEY,
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com",
+    api_key=DEEPSEEK_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
@@ -198,7 +190,6 @@ assistant_qwen= AssistantAgent(
     name="Assistant",
     model_client=qwen_client,
     system_message=system_message_template,
-    
 
 )
 
@@ -229,7 +220,6 @@ def analyze_final_results(results):
         f.write(f"Tổng số phần dữ liệu: {len(grouped_results)}\n")
 
         for idx, group in enumerate(grouped_results):
-            print(f"\nPhân tích kết quả phần {idx+1}/{len(grouped_results)}:")
             evaluation = evaluate_results(group)
             final_evaluations.append(evaluation)
 
@@ -240,24 +230,14 @@ def analyze_final_results(results):
             # Ghi kết quả đánh giá
             f.write(f"Tình trạng: {evaluation['final_status']}\n")
             f.write(f"Đánh giá: {evaluation['final_review']}\n")
-
-            # Ghi phân cách giữa các phần
-
-            # Hiển thị cảnh báo trên console
-            alert = generate_alert(evaluation)
-            print(alert)
-
     return final_evaluations
 
 
 
 
 # Chiết xuất thông tin và tách ra thành các chunk
-print(f"Đang xử lý tệp: \'{file_path}\'...")
 extracted_info = extract_pcap_info(file_path)
-print(f"Đang chia dữ liệu thành các phần nhỏ ({chunk_size} gói/1 phần)...")
 data_chunks = split_data(extracted_info, chunk_size)
-print(f"Tổng số phần dữ liệu: {len(data_chunks)}")
 
 results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks))
 # Gọi hàm phân tích
@@ -278,25 +258,19 @@ with open(os.path.join("log", "network_analysis_log.txt"), "a", encoding="utf-8"
     for status, count in overall_status.items():
         f.write(f"- {status}: {count} phần\n")
 
+     # Chọn trạng thái có trọng số cao nhất
+    if overall_status:
+        # Sắp xếp các trạng thái theo trọng số giảm dần
+        sorted_statuses = sorted(overall_status.keys(),
+                                key=lambda x: STATUS_WEIGHTS[x],
+                                reverse=True)
+
+        # Lấy trạng thái có trọng số cao nhất
+        final_status = sorted_statuses[0]
+        conclusion = f"Hệ thống ở trạng thái {final_status}."
+    else:
+        conclusion = "Không có dữ liệu để đánh giá"
+
     # Ghi kết luận cuối cùng
     f.write("\nKẾT LUẬN:\n")
-    if len(overall_status) == 1:
-        conclusion = f"Hệ thống ở trạng thái {list(overall_status.keys())[0]}"
-    else:
-        try:
-            final_status = max(overall_status.keys(), key=lambda x: STATUS_WEIGHTS[x])
-            conclusion = f"Hệ thống chủ yếu ở trạng thái {final_status}"
-        except:
-            conclusion = "Không thể xác định trạng thái tổng thể"
-
     f.write(conclusion + "\n")
-
-# Hiển thị kết quả trên console
-print("\n\n=== TỔNG KẾT ĐÁNH GIÁ TOÀN BỘ ===")
-for status, count in overall_status.items():
-    print(f"- {status}: {count} phần")
-
-if len(overall_status) == 1:
-    print(f"\nKẾT LUẬN CUỐI CÙNG: {conclusion}")
-else:
-    print(f"\nKẾT LUẬN CUỐI CÙNG: {conclusion}")
