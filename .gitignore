@@ -1,3 +1,5 @@
 .env
-log\
-content\
+log/
+content/
+network_analyze
+__pycache__/

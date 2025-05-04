@@ -87,55 +87,18 @@ def evaluate_results(results: List[str]) -> Dict:
             }
 
     # Trường hợp không có đa số - chọn trọng số cao nhất
-    max_weight = -1
-    candidates = []
-
-    for detail in status_details:
-        if detail["status"] == "null":
-            continue
-        if detail["weight"] > max_weight:
-            max_weight = detail["weight"]
-            candidates = [detail]
-        elif detail["weight"] == max_weight:
-            candidates.append(detail)
-
-    if not candidates:
-        return {
-            "final_status": "null",
-            "final_review": "Không thể xác định từ các phản hồi AI",
-            "details": status_details
-        }
-
     # Ưu tiên model theo thứ tự đã định
     for model in MODEL_PRIORITY:
-        for candidate in candidates:
-            if candidate["model"] == model:
+        for candidate in status_details:
+            if candidate["model"] == model and candidate["status"] != "null":
                 return {
                     "final_status": candidate["status"],
                     "final_review": candidate["review"],
                     "details": status_details
                 }
 
-    # Fallback
     return {
-        "final_status": candidates[0]["status"],
-        "final_review": candidates[0]["review"],
+        "final_status": "null",
+        "final_review": "Không thể xác định từ các phản hồi AI",
         "details": status_details
     }
-
-def generate_alert(final_evaluation: Dict) -> str:
-    #Tạo thông báo cảnh báo từ kết quả đánh giá
-    alert_status = final_evaluation["final_status"]
-
-    if alert_status == "Tốt":
-        return "✅ Hệ thống hoạt động bình thường"
-    elif alert_status == "null":
-        return "⚠️ Không thể xác định trạng thái hệ thống"
-
-    # Tạo thông báo cảnh báo chi tiết
-    alert_msg = [
-        f"🚨 CẢNH BÁO: {alert_status}",
-        f"Lý do: {final_evaluation['final_review']}"
-    ]
-
-    return "\n".join(alert_msg)
