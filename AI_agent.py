@@ -7,6 +7,9 @@ from pydantic import BaseModel
 from typing import Literal
 import datetime
 from dotenv import load_dotenv
+from network_evaluation import evaluate_results, generate_alert, STATUS_WEIGHTS
+from collections import defaultdict
+import asyncio
 
 load_dotenv()
 
@@ -33,18 +36,19 @@ server_ip_list = ["192.168.1.10", "192.168.1.11"]
 # Số lượng gói tin mỗi phần
 chunk_size = 100
 
+
 system_message_template=f"""Bạn là trợ lý AI chuyên phân tích dữ liệu mạng từ một tệp PCAPNG. Nhiệm vụ của bạn là phân tích từng phần của tệp PCAPNG, với mỗi phần được chia theo số lượng gói tin (không theo thời gian 1 giây). Hãy đọc và xử lý thông tin từ các phần này. Khi đạt đến phần cuối cùng, hãy đánh giá tổng quan toàn bộ dữ liệu và trả về kết quả theo định dạng đã định sẵn.
-                            Hãy tuân thủ các quy tắc sau:"
-                            - Dựa vào giới hạn tốc độ mạng của hệ thống, với băng thông tối đa là {maximum_network_limit} và tối thiểu là {minimum_network_limit}."
-                            - Phân tích các địa chỉ IP, lưu lượng mạng, và các dấu hiệu bất thường trong gói tin để đưa ra kết luận chính xác."
-                            - Kết quả cuối cùng phải bao gồm:"
-                                Tình trạng: Một trong các giá trị: 'Tốt', 'Đáng ngờ', 'Bị tấn công', 'Nghẽn mạng', hoặc 'Mạng sập'.
-                                Đánh giá: Một mô tả ngắn gọn về lý do dẫn đến kết luận.
-                            Lưu ý: Ở phần cuối tệp PCAPNG, BẠN CHỈ TRẢ VỀ KẾT QUẢ THEO ĐỊNH DẠNG trên và không thêm bất kỳ thông tin nào khác.
-                            Ví dụ:
-                            Tình trạng: Tốt
-                            Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
-                        """
+                             Hãy tuân thủ các quy tắc sau:"
+                             - Dựa vào giới hạn tốc độ mạng của hệ thống, với băng thông tối đa là {maximum_network_limit} và tối thiểu là {minimum_network_limit}."
+                             - Phân tích các địa chỉ IP, lưu lượng mạng, và các dấu hiệu bất thường trong gói tin để đưa ra kết luận chính xác."
+                             - Kết quả cuối cùng phải bao gồm:"
+                                 Tình trạng: Một trong các giá trị: 'Tốt', 'Đáng ngờ', 'Bị tấn công', 'Nghẽn mạng', hoặc 'Mạng sập'.
+                                 Đánh giá: Một mô tả ngắn gọn về lý do dẫn đến kết luận.
+                             Lưu ý: Ở phần cuối tệp PCAPNG, BẠN CHỈ TRẢ VỀ KẾT QUẢ THEO ĐỊNH DẠNG trên và không thêm bất kỳ thông tin nào khác.
+                             Ví dụ:
+                             Tình trạng: Tốt
+                             Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+                         """
 
 # Hàm chiết xuất thông tin từ file PCAPNG
 def extract_pcap_info(pcap_file):
@@ -86,6 +90,7 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
     gemini_log_file = os.path.join(log_dir, "gemini_log.txt")
     deepseek_log_file = os.path.join(log_dir, "deepseek_log.txt")
     qwen_log_file = os.path.join(log_dir, "qwen_log.txt")
+    log_file = os.path.join(log_dir, "network_analysis_log.txt")
 
     while current_chunk_index < len(data_chunks):
         chunk = data_chunks[current_chunk_index]
@@ -96,12 +101,12 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
         gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
 
          # Lưu kết quả từ cả hai mô hình
-        results.append({
-            "chunk": current_chunk_index + 1,
-            "gemini_result": gemini_result,
-            "deepseek_result": deepseek_result,
-            "qwen_result": qwen_result
-        })
+        #results.append({
+        #    "chunk": current_chunk_index + 1,
+        #    "gemini_result": gemini_result,
+        #    "deepseek_result": deepseek_result,
+        #    "qwen_result": qwen_result
+        #})
 
         # Ghi log vào file log.txt
         with open(gemini_log_file, "a", encoding="utf-8") as f:
@@ -109,8 +114,10 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
             f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
             for response in gemini_result.messages:
                 if response.source == "Assistant":
-                    f.write(f"Assistant: {response.content}\n")
-                    print("Gemini:", response.content)
+                    cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
+                    f.write(f"Assistant: {cleaned_content}\n")
+                    results.append(cleaned_content)
+                    #print("Gemini:", cleaned_content)
             f.write("\n")
 
         with open(deepseek_log_file, "a", encoding="utf-8") as f:
@@ -118,8 +125,10 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
             f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
             for response in deepseek_result.messages:
                 if response.source == "Assistant":
-                    f.write(f"Assistant: {response.content}\n")
-                    print("Deepseek:", response.content)
+                    cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
+                    f.write(f"Assistant: {cleaned_content}\n")
+                    results.append(cleaned_content)
+                    #print("Deepseek:", cleaned_content)
             f.write("\n")
 
         with open(qwen_log_file, "a", encoding="utf-8") as f:
@@ -127,11 +136,13 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
             f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
             for response in qwen_result.messages:
                 if response.source == "Assistant":
-                    f.write(f"Assistant: {response.content}\n")
-                    print("Qwen:", response.content)
+                    cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
+                    f.write(f"Assistant: {cleaned_content}\n")
+                    results.append(cleaned_content)
+                    #print("Qwen:", cleaned_content)
             f.write("\n")
-
         current_chunk_index += 1
+        print(results)
     return results
 
 # Cấu hình model AI
@@ -154,19 +165,19 @@ deepseek_client = OpenAIChatCompletionClient(
         "vision": True,
         "function_calling": True,
         "json_output": True,
-        #"structured_output": True,
+        "structured_output": True,
     },
 )
 
 qwen_client = OpenAIChatCompletionClient(
-    model="opengvlab/internvl3-2b:free",
-    base_url="https://openrouter.ai/api/v1",
-    api_key=OPENROUTER_API_KEY,
+    model="gemini-2.5-pro-exp-03-25",
+    #base_url="https://openrouter.ai/api/v1",
+    api_key=GEMINI_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
         "json_output": True,
-        #"structured_output": True,
+        "structured_output": True,
     },
 )
 
@@ -190,16 +201,6 @@ assistant_qwen= AssistantAgent(
 
 )
 
-# Chiết xuất thông tin và tách ra thành các chunk
-print(f"Đang xử lý tệp: \'{file_path}\'...")
-extracted_info = extract_pcap_info(file_path)
-print(f"Đang chia dữ liệu thành các phần nhỏ ({chunk_size} gói/1 phần)...")
-data_chunks = split_data(extracted_info, chunk_size)
-print(f"Tổng số phần dữ liệu: {len(data_chunks)}")
-
-# Start the conversation
-import asyncio
-
 async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, chunk):
     gemini_task = assistant_gemini.run(task=chunk)
     deepseek_task = assistant_deepseek.run(task=chunk)
@@ -208,4 +209,93 @@ async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qw
     result = await asyncio.gather(gemini_task, deepseek_task, qwen_task)
     return result
 
+
+
+ #Sau khi có results từ asyncio.run(), thêm phần phân tích:
+def analyze_final_results(results):
+    # Chia results thành các nhóm 3 (gemini, deepseek, qwen)
+    grouped_results = [results[i:i+3] for i in range(0, len(results), 3)]
+    final_evaluations = []
+
+    # Mở file log tổng hợp để ghi kết quả đánh giá
+    log_file = os.path.join("log", "network_analysis_log.txt")
+
+    with open(log_file, "a", encoding="utf-8") as f:
+        # Ghi header cho phần đánh giá
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        f.write("\n" + "-"*50 + "\n")
+        f.write(f"\n\n=== ĐÁNH GIÁ TỔNG HỢP - {timestamp} ===\n")
+        f.write(f"Tổng số phần dữ liệu: {len(grouped_results)}\n")
+
+        for idx, group in enumerate(grouped_results):
+            print(f"\nPhân tích kết quả phần {idx+1}/{len(grouped_results)}:")
+            evaluation = evaluate_results(group)
+            final_evaluations.append(evaluation)
+
+            # Ghi thông tin phần hiện tại
+            part_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"\n[PHẦN {idx+1}/{len(grouped_results)} - {part_timestamp}]\n")
+
+            # Ghi kết quả đánh giá
+            f.write(f"Tình trạng: {evaluation['final_status']}\n")
+            f.write(f"Đánh giá: {evaluation['final_review']}\n")
+
+            # Ghi phân cách giữa các phần
+
+            # Hiển thị cảnh báo trên console
+            alert = generate_alert(evaluation)
+            print(alert)
+
+    return final_evaluations
+
+
+
+
+# Chiết xuất thông tin và tách ra thành các chunk
+print(f"Đang xử lý tệp: \'{file_path}\'...")
+extracted_info = extract_pcap_info(file_path)
+print(f"Đang chia dữ liệu thành các phần nhỏ ({chunk_size} gói/1 phần)...")
+data_chunks = split_data(extracted_info, chunk_size)
+print(f"Tổng số phần dữ liệu: {len(data_chunks)}")
+
 results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks))
+# Gọi hàm phân tích
+final_evaluations = analyze_final_results(results)
+
+# Phân tích tổng thể toàn bộ các phần
+overall_status = defaultdict(int)
+for eval in final_evaluations:
+    overall_status[eval["final_status"]] += 1
+
+# Ghi kết quả tổng thể vào file log
+with open(os.path.join("log", "network_analysis_log.txt"), "a", encoding="utf-8") as f:
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    f.write(f"\n\n=== KẾT LUẬN TỔNG THỂ - {timestamp} ===\n")
+
+    # Ghi thống kê trạng thái
+    f.write("Thống kê trạng thái:\n")
+    for status, count in overall_status.items():
+        f.write(f"- {status}: {count} phần\n")
+
+    # Ghi kết luận cuối cùng
+    f.write("\nKẾT LUẬN:\n")
+    if len(overall_status) == 1:
+        conclusion = f"Hệ thống ở trạng thái {list(overall_status.keys())[0]}"
+    else:
+        try:
+            final_status = max(overall_status.keys(), key=lambda x: STATUS_WEIGHTS[x])
+            conclusion = f"Hệ thống chủ yếu ở trạng thái {final_status}"
+        except:
+            conclusion = "Không thể xác định trạng thái tổng thể"
+
+    f.write(conclusion + "\n")
+
+# Hiển thị kết quả trên console
+print("\n\n=== TỔNG KẾT ĐÁNH GIÁ TOÀN BỘ ===")
+for status, count in overall_status.items():
+    print(f"- {status}: {count} phần")
+
+if len(overall_status) == 1:
+    print(f"\nKẾT LUẬN CUỐI CÙNG: {conclusion}")
+else:
+    print(f"\nKẾT LUẬN CUỐI CÙNG: {conclusion}")
