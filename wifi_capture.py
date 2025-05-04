@@ -7,13 +7,14 @@ import sys
 # Kiểm tra hệ điều hành đang sử dụng
 system_type = platform.system()
 
-if system_type == "Window":
-    interface = "Wifi" # Thay bằng tên giao diện Wifi của bạn
+if system_type == "Windows":
+    interface = "Wi-Fi" # Thay bằng tên giao diện Wifi của bạn
     dumpcap_path = "C:/Program Files/Wireshark/dumpcap.exe"  # Để nguyên nếu dumpcap đã được thêm vào PATH
 elif system_type == "Linux":
     interface = "wlp3s0"
     dumpcap_path = "/usr/bin/dumpcap"
 else:
+    print(system_type)
     raise Exception(f"Hệ điều hành không được hỗ trợ: {system_type}")
     
 
@@ -73,6 +74,6 @@ if __name__ == "__main__":
         print("Vui lòng chạy script với quyền root (sudo).")
         sys.exit(1)
     else:
-        capture_wifi_packets()
+        success = capture_wifi_packets()
         if not success:
             sys.exit(1)

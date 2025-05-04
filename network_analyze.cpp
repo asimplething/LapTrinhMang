@@ -18,7 +18,7 @@ int main()
 
     // Đường dẫn và lệnh chạy các script
     const char *capture_script = "python3 wifi_capture.py";
-    const char *ai_agent_script = "python3 AI_agent1.py";
+    const char *ai_agent_script = "python3 AI_agent.py";
     const char *viewer_script = "python3 web_viewer.py";
 
     int sleep_time = 5; // Thời gian chờ giữa các lần chạy (giây)

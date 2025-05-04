@@ -1,0 +1,108 @@
+[2025-05-04 19:19:14] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:19:55] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:20:38] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:21:21] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:22:07] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:22:57] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:23:36] Phân tích phần 1/2
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:24:02] Phân tích phần 2/2
+Assistant: Tình trạng: Tốt  
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường hoặc tấn công nào được phát hiện. Lưu lượng mạng ổn định, không có nghẽn hoặc quá tải.
+
+[2025-05-04 19:24:43] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:25:19] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:26:03] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:27:06] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:27:40] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:28:18] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:28:57] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:29:55] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:30:30] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:53:56] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:54:38] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:55:12] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:55:49] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:56:27] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:57:05] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:57:36] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 19:59:11] Phân tích phần 1/1
+Assistant: Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+
+[2025-05-04 20:49:22] Phân tích phần 1/7
+Assistant: Tình trạng: Đáng ngờ
+Đánh giá: Có nhiều gói tin UDP kích thước lớn (1220-1221 bytes) từ IP 192.168.1.96 đến 35.213.190.158, có thể là dấu hiệu của tấn công DDoS hoặc lưu lượng bất thường.
+
+[2025-05-04 20:49:40] Phân tích phần 2/7
+Assistant: Tình trạng: Bị tấn công  
+Đánh giá: Liên tục có các gói tin UDP kích thước lớn (1086–1134 bytes) từ IP 192.168.1.96 đến 35.213.190.158, kết hợp với tần suất cao, nghi ngờ tấn công DDoS hoặc khai thác băng thông.
+
