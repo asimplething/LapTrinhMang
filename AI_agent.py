@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 from scapy.all import rdpcap
 from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
@@ -11,24 +12,25 @@ from network_evaluation import evaluate_results, STATUS_WEIGHTS
 from collections import defaultdict
 import asyncio
 
-load_dotenv()
+
+
+# Nhận tham số từ command-line
+if len(sys.argv) < 3:
+    raise ValueError("Thiếu tham số: minimum_network_limit, maximum_network_limit và output_capture_file")
+minimum_network_limit = sys.argv[1]
+maximum_network_limit = sys.argv[2]
+output_capture_file = sys.argv[3]
 
 # Đường dẫn tới file PCAPNG
-file_path = "./content/wifi_capture.pcapng"
+file_path = output_capture_file
 
+print("Đang tải API KEY...")
+load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("API_KEY not found in environment variables.")
-
-# Quy định giới hạn băng thông mạng của hệ thống
-minimum_network_limit = "3 Mbs"  # giới hạn băng thông toàn hệ thống mạng
-maximum_network_limit = "6 Mbs"
-
-# Giới hạn lưu lượng mạng mà server có thể xử lý
-minimum_server_limit = "10 Mbs"
-maximum_server_limit = "20 Mbs"
 
 # Danh sách IP server
 server_ip_list = ["192.168.1.10", "192.168.1.11"]
@@ -46,8 +48,8 @@ system_message_template=f"""Bạn là trợ lý AI chuyên phân tích dữ li�
                                  Đánh giá: Một mô tả ngắn gọn về lý do dẫn đến kết luận.
                              Lưu ý: Ở phần cuối tệp PCAPNG, BẠN CHỈ TRẢ VỀ KẾT QUẢ THEO ĐỊNH DẠNG trên và không thêm bất kỳ thông tin nào khác.
                              Ví dụ:
-                             Tình trạng: Tốt
-                             Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào.
+                             Tình trạng: Tốt/Đáng ngờ/Bị tấn công/Nghẽn mạng/Mạng sập
+                             Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào./Hệ thống mạng có dấu hiệu bất thường, cần kiểm tra thêm./Hệ thống mạng bị tấn công, cần xử lý ngay lập tức./Hệ thống mạng đang bị nghẽn, cần tối ưu hóa./Hệ thống mạng đã sập, không thể truy cập được.
                          """
 
 # Hàm chiết xuất thông tin từ file PCAPNG
@@ -80,6 +82,7 @@ def split_data(data, max_packets=50):
 
 # Custom input function to return one chunk at a time
 async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks):
+    print("Đang chạy AI agent...")
     current_chunk_index = 0
     results = []
     # Tạo thư mục log nếu chưa tồn tại
@@ -91,11 +94,12 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
     deepseek_log_file = os.path.join(log_dir, "deepseek_log.txt")
     qwen_log_file = os.path.join(log_dir, "qwen_log.txt")
 
+    print("Đang phân tích tệp tin PCAPNG...")
     while current_chunk_index < len(data_chunks):
         chunk = data_chunks[current_chunk_index]
         message = f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks)}:" \
                   f"\n - Chi tiết: \n{json.dumps(chunk, indent=4, ensure_ascii=False)}"
-
+        
         gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
 
         # Ghi log vào file log.txt
@@ -205,6 +209,7 @@ async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qw
 
  #Sau khi có results từ asyncio.run(), thêm phần phân tích:
 def analyze_final_results(results):
+    print("Đang phân tích kết quả cuối cùng...")
     # Chia results thành các nhóm 3 (gemini, deepseek, qwen)
     grouped_results = [results[i:i+3] for i in range(0, len(results), 3)]
     final_evaluations = []
@@ -248,6 +253,7 @@ overall_status = defaultdict(int)
 for eval in final_evaluations:
     overall_status[eval["final_status"]] += 1
 
+print("Đang ghi kết quả tổng thể vào file log...")
 # Ghi kết quả tổng thể vào file log
 with open(os.path.join("log", "network_analysis_log.txt"), "a", encoding="utf-8") as f:
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

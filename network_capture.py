@@ -4,23 +4,26 @@ import os
 import platform
 import sys
 
+# Nhận tham số từ command-line
+if len(sys.argv) < 4:
+    raise ValueError("Thiếu tham số: capture_duration, maximum_packets_capture, output_capture_file, capture_interface")
+capture_duration = sys.argv[1]
+maximum_packets_capture = sys.argv[2]
+output_file = sys.argv[3]
+capture_interface = sys.argv[4]
+
 # Kiểm tra hệ điều hành đang sử dụng
 system_type = platform.system()
 
 if system_type == "Windows":
-    interface = "Wi-Fi" # Thay bằng tên giao diện Wifi của bạn
-    dumpcap_path = "C:/Program Files/Wireshark/dumpcap.exe"  # Để nguyên nếu dumpcap đã được thêm vào PATH
+    interface = capture_interface
+    dumpcap_path = "C:/Program Files/Wireshark/dumpcap.exe"
 elif system_type == "Linux":
-    interface = "wlp3s0"
+    interface = capture_interface
     dumpcap_path = "/usr/bin/dumpcap"
 else:
     print(system_type)
     raise Exception(f"Hệ điều hành không được hỗ trợ: {system_type}")
-
-
-# Cấu hình
-capture_duration = 10  # Thời gian bắt gói tin (giây)
-output_file = "content/wifi_capture.pcapng"  # Tên file đầu ra
 
 # Đường dẫn đến dumpcap (thay đổi nếu cần)
 # Linux: thường là /usr/bin/dumpcap
@@ -43,7 +46,7 @@ def capture_wifi_packets():
             dumpcap_path,
             "-i", interface,
             "-a", f"duration:{capture_duration}",
-            "-c", "200",
+            "-c", f"{maximum_packets_capture}",
             "-w", output_file,
             "-F", "pcapng"
         ]

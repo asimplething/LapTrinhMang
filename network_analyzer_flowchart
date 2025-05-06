@@ -1,30 +1,50 @@
 // Network Analyzer Flowchart
 digraph {
 	rankdir=TB
-	node [fontname=Arial]
-	edge [fontname=Arial]
-	start [label="Bắt đầu" shape=oval]
-	run_analyzer [label="Chạy chương trình Network Analyzer" shape=box]
-	capture_pcap [label="Gọi tệp Python để bắt lưu lượng mạng
-và lưu thành PCAPNG" shape=box]
-	run_ai_agents [label="Chạy song song 3 AI Agents
-(Gemini, Grok, DeepSeek)" shape=box]
-	compare_results [label="So sánh kết quả từ 3 AI Agents" shape=diamond]
-	select_majority [label="Chọn kết quả có ít nhất
-2/3 đồng thuận" shape=box]
-	select_weighted [label="Chọn kết quả từ AI Agent
-có trọng số lớn nhất" shape=box]
-	output_result [label="In kết quả cuối cùng" shape=box]
-	loop_back [label="Quay lại chạy Network Analyzer" shape=box]
+	subgraph cluster_analyze {
+		color=lightgrey label="Vòng lặp phân tích từng phần" style=filled
+		check_chunks_analyze [label="Còn phần chưa phân tích?" fillcolor=orange shape=diamond style=filled]
+		analyze_chunk [label="Chạy song song 3 AI Agents
+phân tích phần" fillcolor=lightcoral shape=box style=filled]
+	}
+	subgraph cluster_compare {
+		color=lightgrey label="Vòng lặp so sánh kết quả từng phần" style=filled
+		check_chunks_compare [label="Còn phần chưa so sánh?" fillcolor=orange shape=diamond style=filled]
+		compare_chunk [label="So sánh kết quả 3 AI Agents
+cho phần hiện tại" fillcolor=lightblue shape=box style=filled]
+		select_chunk_result [label="Chọn kết quả phần
+(đa số 2/3 hoặc trọng số)" fillcolor=lightblue shape=box style=filled]
+		log_result [label="Ghi kết quả so sánh
+vào log" fillcolor=lightyellow shape=box style=filled]
+	}
+	start [label=Start fillcolor=lightgreen shape=oval style=filled]
+	run_analyzer [label="Chạy Network Analyzer và web" fillcolor=lightblue shape=box style=filled]
+	capture_pcap [label="Bắt lưu lượng mạng
+và lưu thành PCAPNG" fillcolor=lightyellow shape=box style=filled]
+	split_chunks [label="Chia PCAPNG thành
+các phần (chunks)" fillcolor=lightyellow shape=box style=filled]
+	select_critical [label="Chọn trạng thái
+quan trọng nhất" fillcolor=lightcoral shape=box style=filled]
+	log_critical [label="Ghi trạng thái quan trọng
+vào log" fillcolor=lightyellow shape=box style=filled]
+	display_web [label="Hiển thị trên
+web" fillcolor=lightgreen shape=box style=filled]
+	loop_back [label="Quay lại chạy
+Network Analyzer" fillcolor=lightyellow shape=box style=filled]
 	start -> run_analyzer
 	run_analyzer -> capture_pcap
-	capture_pcap -> run_ai_agents
-	run_ai_agents -> compare_results
-	compare_results -> select_majority [label="Nếu có ít nhất
-2/3 đồng thuận"]
-	compare_results -> select_weighted [label="Nếu cả 3 khác nhau"]
-	select_majority -> output_result
-	select_weighted -> output_result
-	output_result -> loop_back
+	capture_pcap -> split_chunks
+	split_chunks -> check_chunks_analyze
+	check_chunks_analyze -> analyze_chunk [label="Có"]
+	analyze_chunk -> check_chunks_analyze [label="Tiếp tục"]
+	check_chunks_analyze -> check_chunks_compare [label="Không"]
+	check_chunks_compare -> compare_chunk [label="Có"]
+	compare_chunk -> select_chunk_result
+	select_chunk_result -> log_result
+	log_result -> check_chunks_compare [label="Tiếp tục"]
+	check_chunks_compare -> select_critical [label="Không"]
+	select_critical -> log_critical
+	log_critical -> display_web
+	display_web -> loop_back
 	loop_back -> run_analyzer
 }
