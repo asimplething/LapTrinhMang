@@ -60,7 +60,6 @@ int loadConfigFile()
 {
     std::cout << "[INFO] Đang kiểm tra lại cấu hình...\n";
     // Đường dẫn đến file cấu hình
-   
 
     // Đọc file cấu hình
     std::map<std::string, std::string> config = read_config_file(config_file);
@@ -91,17 +90,17 @@ int main()
     std::cout << "[INFO] Bắt đầu chương trình phân tích mạng...\n";
     int sleep_time = 5; // Thời gian chờ giữa các lần chạy (giây)
     bool viewer_started = false;
-
+    
     while (true)
     {
-        std::cout << "---------------------------------------------------------" << std::endl;
+        std::cout << "\r\033[K" "---------------------------------------------------------" << std::endl;
         // Đọc lại file cấu hình mỗi lần lặp
-        if(loadConfigFile() != 0)
+        if (loadConfigFile() != 0)
         {
             std::cerr << "[ERROR] Không thể tải file cấu hình, thoát chương trình.\n";
             return 1;
         }
-        
+
         // Lấy các giá trị từ config
         capture_duration = config["capture_duration"];
         maximum_packets_capture = config["maximum_packets_capture"];
@@ -111,20 +110,22 @@ int main()
         capture_interface = config["capture_interface"];
 
         // Đường dẫn và lệnh chạy các script
-        std::string capture_script = "python3 network_capture.py " + capture_duration + " " +
-                                     maximum_packets_capture + " " + output_capture_file + " " +
-                                     capture_interface;
-        std::cout << "[INFO] Đang chạy script bắt gói tin: " << capture_script << std::endl;
+        // std::string capture_script = "python3 network_capture.py " + capture_duration + " " +
+        //                              maximum_packets_capture + " " + output_capture_file + " " +
+        //                              capture_interface;
+        // std::cout << "[INFO] Đang chạy script bắt gói tin: " << capture_script << std::endl;
         std::string ai_agent_script = "python3 AI_agent.py \"" + minimum_network_limit + "\" \"" +
-                                      maximum_network_limit + "\" " + output_capture_file;
+                                      maximum_network_limit + "\" " + output_capture_file + " " + capture_interface + " " + 
+                                      capture_duration + " " + maximum_packets_capture;
         std::cout << "[INFO] Đang chạy script AI agent: " << ai_agent_script << std::endl;
         std::string viewer_script = "python3 web_viewer.py";
-        std::cout << "[INFO] Đang chạy script web viewer: " << viewer_script << std::endl;
 
         // Chạy web.viewer.py một lần duy nhất
         if (!viewer_started)
         {
+            std::cout << "[INFO] Đang chạy script web viewer: " << viewer_script << std::endl;
             std::cout << "[INFO] Đang khởi chạy web.viewer.py...\n";
+            
 #ifdef _WIN32
             // Windows: mở tab mới chạy nền
             system(("start " + viewer_script).c_str());
@@ -136,17 +137,17 @@ int main()
         }
 
         // Chạy script bắt gói tin
-        int capture_result = system(capture_script.c_str());
-        if (capture_result != 0)
-        {
-            std::cerr << "[ERROR] network_capture.py gặp lỗi, thử lại sau vài giây...\n";
-#ifdef _WIN32
-            Sleep(sleep_time * 1000);
-#else
-            sleep(sleep_time);
-#endif
-            continue;
-        }
+//         int capture_result = system(capture_script.c_str());
+//         if (capture_result != 0)
+//         {
+//             std::cerr << "[ERROR] network_capture.py gặp lỗi, thử lại sau vài giây...\n";
+// #ifdef _WIN32
+//             Sleep(sleep_time * 1000);
+// #else
+//             sleep(sleep_time);
+// #endif
+//             continue;
+//         }
 
         // Chạy script AI agent
         int ai_result = system(ai_agent_script.c_str());
