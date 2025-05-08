@@ -16,7 +16,7 @@ from network_evaluation import evaluate_results, STATUS_WEIGHTS
 from collections import defaultdict
 import asyncio
 
-
+print("Đang chạy AI agent...")
 
 # Nhận tham số từ command-line
 if len(sys.argv) < 7:
@@ -58,7 +58,6 @@ system_message_analyze_template=f"""Bạn là trợ lý AI chuyên phân tích d
 
 # Custom input function to return one chunk at a time
 async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks):
-    print("Đang chạy AI agent...")
     current_chunk_index = 0
     results = []
     # Tạo thư mục log nếu chưa tồn tại
@@ -121,7 +120,7 @@ async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qw
     return result
 
 async def run_AIagent_capture_packets():
-    data = await capture_agent.run(task=f"hãy bắt gói tin và chiết xuất thông tin tệp pcap bằng 2 tool (bắt buộc dùng 2 tool này) từ interface là {capture_interface} với output là {output_capture_file}, max packets là {maximum_packets_capture}, duration là {capture_duration}, chunk_size là {chunk_size}")
+    data = await capture_agent.run(task=f"hãy bắt gói tin và chiết xuất thông tin tệp pcap bằng 2 tool (sử dụng cả 2 tool tôi cung cấp cho bạn) từ interface là {capture_interface} với output là {output_capture_file}, max packets là {maximum_packets_capture}, duration là {capture_duration}, chunk_size là {chunk_size}")
     return data
  #Sau khi có results từ asyncio.run(), thêm phần phân tích:
 def analyze_final_results(results):
@@ -155,8 +154,14 @@ def analyze_final_results(results):
 
 # Cấu hình model AI
 gemini_model = OpenAIChatCompletionClient(
-    model="gemini-1.5-flash",
+    model="gemini-2.0-flash",
     api_key=GEMINI_API_KEY,
+    model_capabilities={
+        "vision": True,
+        "function_calling": True,
+        "json_output": True,
+        "structured_output": True,
+    }
     #model="deepseek-chat",
     #base_url="https://api.deepseek.com",
     #api_key=DEEPSEEK_API_KEY,
@@ -194,7 +199,7 @@ qwen_model = OpenAIChatCompletionClient(
 # Thiết lập agent bắt gói tin và chiết xuất thông tin
 capture_agent = AssistantAgent(
     name="CaptureAgent",
-    model_client=deepseek_model,
+    model_client=gemini_model,
     #system_message=system_message_network_capture_template,
     tools=[FunctionTool(network_capture_tool, description="Tool to capture network packets", strict=True),
                FunctionTool(pcap_extract_tool, description="Tool to extract information from pcap file", strict=True)],
@@ -203,19 +208,19 @@ capture_agent = AssistantAgent(
 # Thiết lập agent phân tích
 assistant_gemini = AssistantAgent(
     name="Assistant",
-    model_client=deepseek_model,
+    model_client=gemini_model,
     system_message=system_message_analyze_template,
 )
 
 assistant_deepseek = AssistantAgent(
     name="Assistant",
-    model_client=deepseek_model,
+    model_client=gemini_model,
     system_message=system_message_analyze_template,
 )
 
 assistant_qwen= AssistantAgent(
     name="Assistant",
-    model_client=deepseek_model,
+    model_client=gemini_model,
     system_message=system_message_analyze_template,
 
 )

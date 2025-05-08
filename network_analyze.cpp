@@ -153,7 +153,7 @@ int main()
         int ai_result = system(ai_agent_script.c_str());
         if (ai_result != 0)
         {
-            std::cerr << "[ERROR] AI_agent.py gặp lỗi, thử bắt gói tin và phân tích lại...\n";
+            std::cerr << "[ERROR] AI_agent.py gặp lỗi, đang thử lại...\n";
 #ifdef _WIN32
             Sleep(sleep_time * 1000);
 #else

@@ -1,0 +1,132 @@
+// Sơ đồ khối phân tích gói tin mạng với Autogen
+digraph {
+	fontsize=30 label="Sơ đồ khối chi tiết hệ thống phân tích gói tin mạng" labelloc=t rankdir=TB
+	subgraph cluster_main_exe {
+		color=lightgreen label="network_analyze.exe (C++)" style=filled
+		start_exe [label="Bắt đầu" color=black fillcolor=white style=filled]
+		read_config_exe [label="Đọc tệp config
+(config/system_config.txt)" color=black fillcolor=white style=filled]
+		launch_viewer_once [label="Khởi chạy web_viewer.py
+( chạy nền, 1 lần duy nhất)" color=black fillcolor=white style=filled]
+		main_loop_exe [label="Vòng lặp chính" color=black fillcolor=white style=filled]
+		call_ai_agent_exe [label="Gọi AI_agent.py
+với các tham số từ config" color=black fillcolor=white style=filled]
+	}
+	subgraph cluster_ai_agent {
+		color=lightblue label="AI_agent.py (Python - Autogen Framework)" style=filled
+		receive_params_agent [label="Nhận tham số từ
+network_analyze.exe" color=black fillcolor=white style=filled]
+		subgraph cluster_capture_extract_agent {
+			color=aliceblue fontsize=20 label="CaptureAgent (gồm 1 AI model API và 2 tool)" style=filled
+			capture_ai_agent [label="CaptureAgent (Gemini API)" color=black fillcolor=white style=filled]
+			use_network_capture_tool [label="Sử dụng network_capture_tool"]
+			pcapng_file [label="[Tệp .pcapng]" fillcolor=beige shape=note style=filled]
+			use_pcap_extract_tool [label="Sử dụng pcap_extract_tool"]
+			data_chunks [label="[Data Chunks]" fillcolor=beige shape=note style=filled]
+		}
+		subgraph cluster_analysis_models {
+			color=lightcyan fontsize=20 label="Phân tích song song (3 AI Models API)" style=filled
+			loop_chunks [label="Lặp qua từng Data Chunk"]
+			send_to_model1 [label="Gửi chunk đến AI Model 1
+(Assistant Gemini)"]
+			send_to_model2 [label="Gửi chunk đến AI Model 2
+(Assistant DeepSeek)"]
+			send_to_model3 [label="Gửi chunk đến AI Model 3
+(Assistant Qwen)"]
+			log_model1 [label="Ghi log Model 1
+(gemini_log.txt)"]
+			log_model2 [label="Ghi log Model 2
+(deepseek_log.txt)"]
+			log_model3 [label="Ghi log Model 3
+(qwen_log.txt)"]
+			wait_3_model [label="Chờ phản hồi từ cả 3 models"]
+			collect_3_results [label="Thu thập kết quả
+từ 3 models cho chunk"]
+			log_chunk_eval [label="Lưu đánh giá của chunk
+vào network_analysis_log.txt"]
+		}
+		subgraph cluster_evaluation {
+			color=lightyellow fontsize=20 label="Tổng hợp và kết luận" style=filled
+			check_all_chunks_done [label="Tất cả các chunk đã xử lý?"]
+			overall_conclusion [label="Kết luận trạng thái mạng
+(dựa trên trọng số trạng thái từ các chunk)"]
+			log_overall_conclusion [label="Ghi trạng thái mạng
+vào network_analysis_log.txt"]
+			final_log_file [label="[log/network_analysis_log.txt]" fillcolor=lemonchiffon shape=note style=filled]
+		}
+		end_ai_agent [label="Kết thúc AI_agent.py" color=black fillcolor=white style=filled]
+	}
+	subgraph cluster_web_viewer {
+		color=lightblue label="web_viewer.py (Python - Flask)" style=filled
+		flask_app [label="Chạy ứng dụng Flask Web" color=black fillcolor=white style=filled]
+		subgraph cluster_dashboard {
+			color=lightyellow fontsize=20 label="Trang Dashboard (/) " style=filled
+			start_dashboard_loop [label="Bắt đầu chu kỳ làm mới Dashboard"]
+			read_main_log_viewer [label="Đọc network_analysis_log.txt"]
+			parse_log_viewer [label="Phân tích log:
+- Lấy trạng thái hiện tại
+- Lấy đánh giá mới nhất"]
+			display_on_web [label="Hiển thị thông tin trên web"]
+			web_interface_dashboard [label="[Giao diện Web Dashboard]" fillcolor=aquamarine shape=display style=filled]
+			delay_5s [label="Chờ 5 giây"]
+		}
+		subgraph cluster_config_page {
+			color=lightcyan fontsize=20 label="Trang Configuration (/configuration/)" style=filled
+			load_config_page [label="Truy cập trang cấu hình"]
+			read_config_viewer_initial [label="Đọc config/system_config.txt (lần đầu)"]
+			display_config_form [label="Hiển thị form cấu hình
+với dữ liệu hiện tại"]
+			user_modifies_config [label="Người dùng chỉnh sửa & Nhấn SAVE"]
+			write_config_viewer [label="Ghi thay đổi vào
+config/system_config.txt"]
+			read_config_viewer_after_save [label="Đọc lại config/system_config.txt"]
+			config_file_viewer [label="[config/system_config.txt]" fillcolor=beige shape=note style=filled]
+		}
+	}
+	start_exe -> read_config_exe
+	read_config_exe -> launch_viewer_once
+	launch_viewer_once -> main_loop_exe
+	main_loop_exe -> call_ai_agent_exe
+	call_ai_agent_exe -> receive_params_agent [lhead=cluster_ai_agent]
+	receive_params_agent -> capture_ai_agent
+	capture_ai_agent -> use_network_capture_tool
+	use_network_capture_tool -> pcapng_file
+	pcapng_file -> use_pcap_extract_tool
+	use_pcap_extract_tool -> data_chunks
+	data_chunks -> loop_chunks
+	loop_chunks -> send_to_model1
+	loop_chunks -> send_to_model2
+	loop_chunks -> send_to_model3
+	send_to_model1 -> log_model1
+	send_to_model2 -> log_model2
+	send_to_model3 -> log_model3
+	log_model1 -> wait_3_model
+	log_model2 -> wait_3_model
+	log_model3 -> wait_3_model
+	wait_3_model -> collect_3_results
+	collect_3_results -> log_chunk_eval
+	log_chunk_eval -> check_all_chunks_done
+	check_all_chunks_done -> loop_chunks [label="Còn chunk"]
+	check_all_chunks_done -> overall_conclusion [label="Hết chunk"]
+	overall_conclusion -> log_overall_conclusion
+	log_overall_conclusion -> final_log_file
+	final_log_file -> end_ai_agent
+	end_ai_agent -> main_loop_exe [label="Lặp lại phân tích" ltail=cluster_ai_agent]
+	launch_viewer_once -> flask_app [lhead=cluster_web_viewer]
+	flask_app -> start_dashboard_loop [label="Truy cập Dashboard (/)"]
+	start_dashboard_loop -> read_main_log_viewer
+	read_main_log_viewer -> parse_log_viewer
+	parse_log_viewer -> display_on_web
+	display_on_web -> web_interface_dashboard
+	web_interface_dashboard -> delay_5s
+	delay_5s -> start_dashboard_loop [label="5s làm mới"]
+	flask_app -> load_config_page [label="Truy cập Config (/configuration/) - GET"]
+	load_config_page -> read_config_viewer_initial
+	read_config_viewer_initial -> display_config_form
+	display_config_form -> user_modifies_config
+	user_modifies_config -> write_config_viewer [label="Nhấn Save (POST)"]
+	write_config_viewer -> config_file_viewer [label="Ghi vào" arrowhead=normal style=dashed]
+	write_config_viewer -> read_config_viewer_after_save
+	read_config_viewer_after_save -> display_config_form [label="Hiển thị lại
+dữ liệu đã cập nhật"]
+}
