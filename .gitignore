@@ -4,3 +4,4 @@ content/
 network_analyze
 __pycache__/
 .vscode/
+config/

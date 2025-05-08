@@ -57,7 +57,7 @@ system_message_analyze_template=f"""Bạn là trợ lý AI chuyên phân tích d
                          """
 
 # Custom input function to return one chunk at a time
-async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks):
+async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_list):
     current_chunk_index = 0
     results = []
     # Tạo thư mục log nếu chưa tồn tại
@@ -70,17 +70,22 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
     qwen_log_file = os.path.join(log_dir, "qwen_log.txt")
 
     print("Đang phân tích tệp tin PCAPNG...")
-    while current_chunk_index < len(data_chunks):
-        chunk = data_chunks[current_chunk_index]
-        message = f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks)}:" \
+    if not isinstance(data_chunks_list, list):
+        print(f"Error: Expected data_chunks_list to be a list, but got {type(data_chunks_list)}")
+        # Handle the error appropriately, maybe return or raise an exception
+        return results # Or raise TypeError("data_chunks_list must be a list")
+
+    while current_chunk_index < len(data_chunks_list):
+        chunk = data_chunks_list[current_chunk_index]
+        message = f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks_list)}:" \
                   f"\n - Chi tiết: \n{json.dumps(chunk, indent=4, ensure_ascii=False)}"
-        
+
         gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
 
         # Ghi log vào file log.txt
         with open(gemini_log_file, "a", encoding="utf-8") as f:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
+            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks_list)}\n")
             for response in gemini_result.messages:
                 if response.source == "Assistant":
                     cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
@@ -90,7 +95,7 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
 
         with open(deepseek_log_file, "a", encoding="utf-8") as f:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
+            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks_list)}\n")
             for response in deepseek_result.messages:
                 if response.source == "Assistant":
                     cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
@@ -100,7 +105,7 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
 
         with open(qwen_log_file, "a", encoding="utf-8") as f:
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks)}\n")
+            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks_list)}\n")
             for response in qwen_result.messages:
                 if response.source == "Assistant":
                     cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
@@ -165,7 +170,7 @@ gemini_model = OpenAIChatCompletionClient(
     #model="deepseek-chat",
     #base_url="https://api.deepseek.com",
     #api_key=DEEPSEEK_API_KEY,
-    
+
 )
 
 deepseek_model = OpenAIChatCompletionClient(
@@ -214,72 +219,152 @@ assistant_gemini = AssistantAgent(
 
 assistant_deepseek = AssistantAgent(
     name="Assistant",
-    model_client=gemini_model,
+    model_client=deepseek_model, # Corrected
     system_message=system_message_analyze_template,
 )
 
 assistant_qwen= AssistantAgent(
     name="Assistant",
-    model_client=gemini_model,
+    model_client=qwen_model, # Corrected
     system_message=system_message_analyze_template,
 
 )
 # data_chunks = "[[{'time': 1746621874.48171, 'src_ip': '192.168.1.95', 'dst_ip': '140.82.113.21', 'protocol': 6, 'size': 532, 'src_port': 60299, 'dst_port': 443}, {'time': 1746621876.916728, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.2', 'protocol': 2, 'size': 46}, {'time': 1746621876.925393, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621876.926569, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 78, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.926708, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 220, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.926826, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 200, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.927403, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 17, 'size': 72, 'src_port': 53470, 'dst_port': 5355}, {'time': 1746621876.928015, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.2', 'protocol': 2, 'size': 46}, {'time': 1746621876.931735, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621876.932235, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 78, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.932606, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 200, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.93299, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 17, 'size': 72, 'src_port': 55602, 'dst_port': 5355}, {'time': 1746621877.231735, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621878.15456, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 335, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.155154, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.405297, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.659373, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}]]"
-data_chunks=None
+data_chunks_from_tool = None # Renamed from data_chunks to avoid confusion before parsing
 is_network_captured = False
 
 # Bắt gói tin và chiết xuất thông tin từ tệp PCAPNG
 while True:
-    results = asyncio.run(run_AIagent_capture_packets())
+    results_capture_extract = asyncio.run(run_AIagent_capture_packets()) # Renamed 'results'
     # Tìm ToolCallExecutionEvent
-    for message in results.messages:
+    for message in results_capture_extract.messages:
         if message.type == 'ToolCallExecutionEvent':
             for tool_result in message.content:
                 print(tool_result.name)
-                if tool_result.name == 'network_capture_tool' and not tool_result.is_error and is_network_captured is False:
-                    is_network_captured = True
+                if tool_result.name == 'network_capture_tool' and not tool_result.is_error: # Removed 'is_network_captured is False' here as it's set below
+                    # We should check tool_result.content['success'] if possible,
+                    # but for now, just being called without error is the trigger.
+                    print(f"network_capture_tool output: {tool_result.content}")
+                    # Attempt to interpret the tool_result.content to set is_network_captured
+                    capture_successful = False
+                    if isinstance(tool_result.content, dict) and tool_result.content.get("success") is True:
+                        capture_successful = True
+                    elif isinstance(tool_result.content, str): # If content is a string, try to parse as JSON
+                        try:
+                            parsed_content = json.loads(tool_result.content)
+                            if isinstance(parsed_content, dict) and parsed_content.get("success") is True:
+                                 capture_successful = True
+                            else:
+                                print("network_capture_tool output was parsable JSON but did not indicate success.")
+                        except json.JSONDecodeError:
+                            print("network_capture_tool output was a string but not valid JSON.")
+                    else:
+                        print(f"network_capture_tool output was not in expected format (dict or JSON string). Type: {type(tool_result.content)}")
+
+                    if capture_successful:
+                        is_network_captured = True
+                        print("Network capture reported success.")
+                    else:
+                        print("Network capture did NOT report success.")
+                        is_network_captured = False # Explicitly set to false if not successful
+
                 if tool_result.name == 'pcap_extract_tool' and not tool_result.is_error and is_network_captured is True:
-                    data_chunks = tool_result.content
-    if data_chunks is None or is_network_captured is False:
-        print("AI Không bắt được gói tin hoặc chiết xuất thông tin từ tệp PCAP", data_chunks, is_network_captured   )
+                    print(f"pcap_extract_tool output: {tool_result.content}")
+                    data_chunks_from_tool = tool_result.content
+
+    if data_chunks_from_tool is None or is_network_captured is False:
+        print(f"AI không bắt được gói tin thành công hoặc không chiết xuất được thông tin. Capture success status: {is_network_captured}, Extracted data: {data_chunks_from_tool}")
+        # C++ wrapper handles retry and sleep, so Python script should exit to signal failure for this attempt.
+        print("Exiting AI_agent.py to allow the main program to retry.")
+        sys.exit(1)
     else:
+        print("Successfully captured and extracted data. Proceeding to analysis.")
         break
-data_chunks = json.loads(data_chunks)
 
-results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks))
+# Initialize data_chunks_parsed to a default value (e.g., None or an empty list)
+# to ensure it's defined in case of early exit.
+data_chunks_parsed = None
 
-# Gọi hàm phân tích
-final_evaluations = analyze_final_results(results)
+if data_chunks_from_tool is None: # This check is somewhat redundant given the loop exit condition but kept for safety
+    print(f"Error: data_chunks_from_tool is None after capture loop. Cannot proceed.")
+    print("This implies an issue with the capture/extraction logic or tool responses.")
+    print("Exiting AI_agent.py.")
+    sys.exit(1)
 
-# Phân tích tổng thể toàn bộ các phần
+elif isinstance(data_chunks_from_tool, str):
+    if data_chunks_from_tool.strip().lower() == "none":
+        print(f"Error: data_chunks_from_tool is the literal string 'None'. Cannot parse JSON.")
+        print("This indicates pcap_extract_tool likely failed or returned None, which was then stringified by the framework.")
+        print("Check logs for pcap_extract_tool and network_capture_tool for more details.")
+        print("Exiting AI_agent.py.")
+        sys.exit(1)
+    elif not data_chunks_from_tool.strip():
+        print(f"Error: data_chunks_from_tool is an empty or whitespace-only string: '{data_chunks_from_tool}'. Cannot parse JSON.")
+        print("pcap_extract_tool might have returned an empty string unexpectedly.")
+        print("Exiting AI_agent.py.")
+        sys.exit(1)
+
+    try:
+        data_chunks_parsed = json.loads(data_chunks_from_tool)
+        print(f"Successfully parsed JSON string from pcap_extract_tool.")
+    except json.JSONDecodeError as e:
+        print(f"Error decoding JSON from data_chunks_from_tool string: {e}")
+        print(f"Content of data_chunks_from_tool string that failed to parse: >>>{data_chunks_from_tool}<<<")
+        print("This could be due to malformed JSON output from pcap_extract_tool.")
+        print("Exiting AI_agent.py.")
+        sys.exit(1)
+elif isinstance(data_chunks_from_tool, (list, dict)):
+    print("data_chunks_from_tool is already a Python object (list/dict). Assuming it's the parsed data.")
+    data_chunks_parsed = data_chunks_from_tool
+else:
+    print(f"Error: data_chunks_from_tool is of an unexpected type: {type(data_chunks_from_tool)}. Content: {data_chunks_from_tool}")
+    print("Expected a JSON string, or a list/dict if already parsed by the framework.")
+    print("Exiting AI_agent.py.")
+    sys.exit(1)
+
+if data_chunks_parsed is None:
+    print("Critical Error: data_chunks_parsed is None after all processing attempts.")
+    print(f"Original data_chunks_from_tool content was: >>>{data_chunks_from_tool}<<<")
+    print("This points to a flaw in the data handling or tool output interpretation logic.")
+    print("Exiting AI_agent.py.")
+    sys.exit(1)
+
+if not isinstance(data_chunks_parsed, list):
+    print(f"Critical Error: data_chunks_parsed is not a list as expected by run_AIagent. Type: {type(data_chunks_parsed)}")
+    print(f"Content: {data_chunks_parsed}")
+    print("The pcap_extract_tool should return a list of chunks (even if it's a JSON string representing that list).")
+    print("Exiting AI_agent.py.")
+    sys.exit(1)
+
+analysis_results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_parsed))
+
+final_evaluations = analyze_final_results(analysis_results)
+
 overall_status = defaultdict(int)
-for eval in final_evaluations:
-    overall_status[eval["final_status"]] += 1
+for eval_item in final_evaluations:
+    overall_status[eval_item["final_status"]] += 1
 
 print("Đang ghi kết quả tổng thể vào file log...")
-# Ghi kết quả tổng thể vào file log
 with open(os.path.join("log", "network_analysis_log.txt"), "a", encoding="utf-8") as f:
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     f.write(f"\n\n=== KẾT LUẬN TỔNG THỂ - {timestamp} ===\n")
 
-    # Ghi thống kê trạng thái
     f.write("Thống kê trạng thái:\n")
     for status, count in overall_status.items():
         f.write(f"- {status}: {count} phần\n")
 
-     # Chọn trạng thái có trọng số cao nhất
     if overall_status:
-        # Sắp xếp các trạng thái theo trọng số giảm dần
         sorted_statuses = sorted(overall_status.keys(),
-                                key=lambda x: STATUS_WEIGHTS[x],
+                                key=lambda x: STATUS_WEIGHTS.get(x, 0),
                                 reverse=True)
 
-        # Lấy trạng thái có trọng số cao nhất
-        final_status = sorted_statuses[0]
-        conclusion = f"Hệ thống ở trạng thái {final_status}."
+        if sorted_statuses:
+            final_status = sorted_statuses[0]
+            conclusion = f"Hệ thống ở trạng thái {final_status}."
+        else:
+            conclusion = "Không thể xác định trạng thái từ các mục đã xử lý (sorted_statuses was empty)."
     else:
-        conclusion = "Không có dữ liệu để đánh giá"
+        conclusion = "Không có dữ liệu để đánh giá (overall_status was empty)"
 
-    # Ghi kết luận cuối cùng
     f.write("\nKẾT LUẬN:\n")
     f.write(conclusion + "\n")
