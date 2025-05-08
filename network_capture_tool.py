@@ -2,6 +2,7 @@ import subprocess
 import os
 import platform
 import json
+from write_log import write_log_capture
 
 async def capture_packets(capture_duration, maximum_packets_capture, output_file, capture_interface):
     """
@@ -57,6 +58,7 @@ async def capture_packets(capture_duration, maximum_packets_capture, output_file
         print(f"Đã lưu gói tin vào {output_file}")
         if os.path.exists(output_file):
             print(f"Kích thước file: {os.path.getsize(output_file)} bytes")
+        write_log_capture(output_file)
         return json.dumps({"success": True, "output_file": output_file})
 
     except Exception as e:

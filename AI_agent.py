@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from network_evaluation import evaluate_results, STATUS_WEIGHTS
 from collections import defaultdict
 import asyncio
+from write_log import write_log_agents, write_log_conclusion
 
 print("Đang chạy AI agent...")
 
@@ -61,13 +62,6 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
     current_chunk_index = 0
     results = []
     # Tạo thư mục log nếu chưa tồn tại
-    log_dir = "log"
-    if not os.path.exists(log_dir):
-        os.makedirs(log_dir)
-
-    gemini_log_file = os.path.join(log_dir, "gemini_log.txt")
-    deepseek_log_file = os.path.join(log_dir, "deepseek_log.txt")
-    qwen_log_file = os.path.join(log_dir, "qwen_log.txt")
 
     print("Đang phân tích tệp tin PCAPNG...")
     if not isinstance(data_chunks_list, list):
@@ -82,36 +76,7 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
 
         gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
 
-        # Ghi log vào file log.txt
-        with open(gemini_log_file, "a", encoding="utf-8") as f:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks_list)}\n")
-            for response in gemini_result.messages:
-                if response.source == "Assistant":
-                    cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
-                    f.write(f"Assistant: {cleaned_content}\n")
-                    results.append(cleaned_content)
-            f.write("\n")
-
-        with open(deepseek_log_file, "a", encoding="utf-8") as f:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks_list)}\n")
-            for response in deepseek_result.messages:
-                if response.source == "Assistant":
-                    cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
-                    f.write(f"Assistant: {cleaned_content}\n")
-                    results.append(cleaned_content)
-            f.write("\n")
-
-        with open(qwen_log_file, "a", encoding="utf-8") as f:
-            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(data_chunks_list)}\n")
-            for response in qwen_result.messages:
-                if response.source == "Assistant":
-                    cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
-                    f.write(f"Assistant: {cleaned_content}\n")
-                    results.append(cleaned_content)
-            f.write("\n")
+        results = write_log_agents(gemini_result, deepseek_result, qwen_result, current_chunk_index, data_chunks_list, results)
         current_chunk_index += 1
     return results
 
@@ -345,26 +310,4 @@ for eval_item in final_evaluations:
     overall_status[eval_item["final_status"]] += 1
 
 print("Đang ghi kết quả tổng thể vào file log...")
-with open(os.path.join("log", "network_analysis_log.txt"), "a", encoding="utf-8") as f:
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    f.write(f"\n\n=== KẾT LUẬN TỔNG THỂ - {timestamp} ===\n")
-
-    f.write("Thống kê trạng thái:\n")
-    for status, count in overall_status.items():
-        f.write(f"- {status}: {count} phần\n")
-
-    if overall_status:
-        sorted_statuses = sorted(overall_status.keys(),
-                                key=lambda x: STATUS_WEIGHTS.get(x, 0),
-                                reverse=True)
-
-        if sorted_statuses:
-            final_status = sorted_statuses[0]
-            conclusion = f"Hệ thống ở trạng thái {final_status}."
-        else:
-            conclusion = "Không thể xác định trạng thái từ các mục đã xử lý (sorted_statuses was empty)."
-    else:
-        conclusion = "Không có dữ liệu để đánh giá (overall_status was empty)"
-
-    f.write("\nKẾT LUẬN:\n")
-    f.write(conclusion + "\n")
+write_log_conclusion(overall_status)
