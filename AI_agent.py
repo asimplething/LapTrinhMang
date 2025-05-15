@@ -2,21 +2,25 @@ import os
 import sys
 import json
 from scapy.all import rdpcap
-from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
+from autogen_agentchat.agents import AssistantAgent
 from autogen_ext.models.openai import OpenAIChatCompletionClient
+
 # Tool cho AI agent để bắt gói tin và phân tích
-from network_capture_tool import network_capture_tool
-from pcap_extract_tool import pcap_extract_tool
+from tools.network_capture_tool import network_capture_tool
+from tools.pcap_extract_tool import pcap_extract_tool
+from tools.log_tool import write_log_tool, read_log_tool
 from autogen_core.tools import FunctionTool
-from typing import Literal, Dict, List, Any
-from pydantic import BaseModel
+
+# Template cho các system message
+from system_message_template.message_template import analyze_final_results_template, analyze_template
 import datetime
 from dotenv import load_dotenv
-from network_evaluation import evaluate_results, STATUS_WEIGHTS
+from network_evaluation import evaluate_results
 from collections import defaultdict
 import asyncio
 from write_log import write_log_agents, write_log_conclusion
 
+sys.stdout.reconfigure(encoding='utf-8')
 print("Đang chạy AI agent...")
 
 # Nhận tham số từ command-line
@@ -44,19 +48,6 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("API_KEY not found in environment variables.")
 
-system_message_analyze_template=f"""Bạn là trợ lý AI chuyên phân tích dữ liệu mạng từ một tệp PCAPNG. Nhiệm vụ của bạn là phân tích từng phần của tệp PCAPNG, với mỗi phần được chia theo số lượng gói tin (không theo thời gian 1 giây). Hãy đọc và xử lý thông tin từ các phần này. Khi đạt đến phần cuối cùng, hãy đánh giá tổng quan toàn bộ dữ liệu và trả về kết quả theo định dạng đã định sẵn.
-                             Hãy tuân thủ các quy tắc sau:"
-                             - Dựa vào giới hạn tốc độ mạng của hệ thống, với băng thông tối đa là {maximum_network_limit} và tối thiểu là {minimum_network_limit}."
-                             - Phân tích các địa chỉ IP, lưu lượng mạng, và các dấu hiệu bất thường trong gói tin để đưa ra kết luận chính xác."
-                             - Kết quả cuối cùng phải bao gồm:"
-                                 Tình trạng: Một trong các giá trị: 'Tốt', 'Đáng ngờ', 'Bị tấn công', 'Nghẽn mạng', hoặc 'Mạng sập'.
-                                 Đánh giá: Một mô tả ngắn gọn về lý do dẫn đến kết luận.
-                             Lưu ý: Ở phần cuối tệp PCAPNG, BẠN CHỈ TRẢ VỀ KẾT QUẢ THEO ĐỊNH DẠNG trên và không thêm bất kỳ thông tin nào khác.
-                             Ví dụ:
-                             Tình trạng: Tốt/Đáng ngờ/Bị tấn công/Nghẽn mạng/Mạng sập
-                             Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào./Hệ thống mạng có dấu hiệu bất thường, cần kiểm tra thêm./Hệ thống mạng bị tấn công, cần xử lý ngay lập tức./Hệ thống mạng đang bị nghẽn, cần tối ưu hóa./Hệ thống mạng đã sập, không thể truy cập được.
-                         """
-
 # Custom input function to return one chunk at a time
 async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_list):
     current_chunk_index = 0
@@ -66,8 +57,8 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
     print("Đang phân tích tệp tin PCAPNG...")
     if not isinstance(data_chunks_list, list):
         print(f"Error: Expected data_chunks_list to be a list, but got {type(data_chunks_list)}")
-        # Handle the error appropriately, maybe return or raise an exception
-        return results # Or raise TypeError("data_chunks_list must be a list")
+       
+        return results
 
     while current_chunk_index < len(data_chunks_list):
         chunk = data_chunks_list[current_chunk_index]
@@ -124,7 +115,7 @@ def analyze_final_results(results):
 
 # Cấu hình model AI
 gemini_model = OpenAIChatCompletionClient(
-    model="gemini-2.0-flash",
+    model="gemini-1.5-flash",
     api_key=GEMINI_API_KEY,
     model_capabilities={
         "vision": True,
@@ -139,9 +130,11 @@ gemini_model = OpenAIChatCompletionClient(
 )
 
 deepseek_model = OpenAIChatCompletionClient(
-    model="deepseek-chat",
-    base_url="https://api.deepseek.com",
-    api_key=DEEPSEEK_API_KEY,
+    model="gemini-2.0-flash",
+    api_key=GEMINI_API_KEY,
+    # model="deepseek-chat",
+    # base_url="https://api.deepseek.com",
+    # api_key=DEEPSEEK_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
@@ -151,12 +144,12 @@ deepseek_model = OpenAIChatCompletionClient(
 )
 
 qwen_model = OpenAIChatCompletionClient(
-    #model="gemini-2.5-pro-exp-03-25",
+    model="gemini-2.0-flash",
     #base_url="https://openrouter.ai/api/v1",
-    #api_key=GEMINI_API_KEY,
-    model="deepseek-chat",
-    base_url="https://api.deepseek.com",
-    api_key=DEEPSEEK_API_KEY,
+    api_key=GEMINI_API_KEY,
+    # model="deepseek-chat",
+    # base_url="https://api.deepseek.com",
+    # api_key=DEEPSEEK_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
@@ -179,20 +172,19 @@ capture_agent = AssistantAgent(
 assistant_gemini = AssistantAgent(
     name="Assistant",
     model_client=gemini_model,
-    system_message=system_message_analyze_template,
+    system_message=analyze_template(maximum_network_limit, minimum_network_limit),
 )
 
 assistant_deepseek = AssistantAgent(
     name="Assistant",
     model_client=deepseek_model, # Corrected
-    system_message=system_message_analyze_template,
+    system_message=analyze_template(maximum_network_limit, minimum_network_limit),
 )
 
-assistant_qwen= AssistantAgent(
+assistant_qwen = AssistantAgent(
     name="Assistant",
-    model_client=qwen_model, # Corrected
-    system_message=system_message_analyze_template,
-
+    model_client=gemini_model,
+    system_message=analyze_template(maximum_network_limit, minimum_network_limit),
 )
 # data_chunks = "[[{'time': 1746621874.48171, 'src_ip': '192.168.1.95', 'dst_ip': '140.82.113.21', 'protocol': 6, 'size': 532, 'src_port': 60299, 'dst_port': 443}, {'time': 1746621876.916728, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.2', 'protocol': 2, 'size': 46}, {'time': 1746621876.925393, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621876.926569, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 78, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.926708, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 220, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.926826, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 200, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.927403, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 17, 'size': 72, 'src_port': 53470, 'dst_port': 5355}, {'time': 1746621876.928015, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.2', 'protocol': 2, 'size': 46}, {'time': 1746621876.931735, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621876.932235, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 78, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.932606, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 200, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.93299, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 17, 'size': 72, 'src_port': 55602, 'dst_port': 5355}, {'time': 1746621877.231735, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621878.15456, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 335, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.155154, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.405297, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.659373, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}]]"
 data_chunks_from_tool = None # Renamed from data_chunks to avoid confusion before parsing
