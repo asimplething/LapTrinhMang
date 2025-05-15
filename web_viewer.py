@@ -9,14 +9,12 @@ app = Flask(__name__)
 
 # Đường dẫn đến file log và config
 LOG_DIR = "log"
-MAIN_LOG_FILE = os.path.join(LOG_DIR, "network_analysis_log.txt")
+MAIN_LOG_FILE = os.path.join(LOG_DIR, "detailed_analysis_report.txt")
 CONFIG_FILE = "config/system_config.txt"
 VIEWABLE_LOG_FILES = {
     "capture": "capture_log.txt",
-    "gemini": "gemini_log.txt",
     "deepseek": "deepseek_log.txt",
-    "qwen": "qwen_log.txt",
-    "network_analysis": "network_analysis_log.txt" # Main log also viewable here
+    "detailed_analysis": "detailed_analysis_report.txt"
 }
 
 def parse_log_file():
@@ -135,21 +133,19 @@ DASHBOARD_TEMPLATE = """
         </div>
 
         <div class="latest-card card">
-            <h2>Đánh giá mới nhất (từ network_analysis_log.txt)</h2>
+            <h2>Đánh giá mới nhất (từ detailed_analysis_report.txt)</h2>
             <pre>{{ latest_evaluation }}</pre>
         </div>
 
         <div class="logs-links-card card">
             <h2>Xem chi tiết Logs</h2>
-            <a href="{{ url_for('view_specific_log', log_key='network_analysis') }}" class="nav-button log-link-button">Network Analysis Log</a>
+            <a href="{{ url_for('view_specific_log', log_key='detailed_analysis') }}" class="nav-button log-link-button">Detailed Analysis Report</a>
             <a href="{{ url_for('view_specific_log', log_key='capture') }}" class="nav-button log-link-button">Capture Log</a>
-            <a href="{{ url_for('view_specific_log', log_key='gemini') }}" class="nav-button log-link-button">Gemini Log</a>
             <a href="{{ url_for('view_specific_log', log_key='deepseek') }}" class="nav-button log-link-button">Deepseek Log</a>
-            <a href="{{ url_for('view_specific_log', log_key='qwen') }}" class="nav-button log-link-button">Qwen Log</a>
         </div>
 
         <div class="full-log-card card"> <!-- Renamed class -->
-            <h2>Toàn bộ nhật ký chính (network_analysis_log.txt)</h2>
+            <h2>Toàn bộ nhật ký chi tiết (detailed_analysis_report.txt)</h2>
             <pre>{{ full_log_summary }}</pre>
         </div>
     </div>
@@ -314,7 +310,7 @@ if __name__ == '__main__':
 
     print("Dashboard is running at http://localhost:5000")
     print("Configuration page is at http://localhost:5000/configuration/")
-    print("View logs at /logs/<log_key> (e.g., /logs/capture, /logs/gemini)")
+    print("View logs at /logs/<log_key> (e.g., /logs/capture, /logs/deepseek, /logs/detailed_analysis)")
     print("Auto-refreshing dashboard every 10 seconds...")
 
     try:

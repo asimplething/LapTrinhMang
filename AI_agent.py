@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 from network_evaluation import evaluate_results, STATUS_WEIGHTS
 from collections import defaultdict
 import asyncio
-from write_log import write_log_agents, write_log_conclusion
+from write_log import write_log_agents, write_detailed_analysis_report
 
 print("Đang chạy AI agent...")
 
@@ -44,21 +44,231 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 if not GEMINI_API_KEY:
     raise ValueError("API_KEY not found in environment variables.")
 
-system_message_analyze_template=f"""Bạn là trợ lý AI chuyên phân tích dữ liệu mạng từ một tệp PCAPNG. Nhiệm vụ của bạn là phân tích từng phần của tệp PCAPNG, với mỗi phần được chia theo số lượng gói tin (không theo thời gian 1 giây). Hãy đọc và xử lý thông tin từ các phần này. Khi đạt đến phần cuối cùng, hãy đánh giá tổng quan toàn bộ dữ liệu và trả về kết quả theo định dạng đã định sẵn.
-                             Hãy tuân thủ các quy tắc sau:"
-                             - Dựa vào giới hạn tốc độ mạng của hệ thống, với băng thông tối đa là {maximum_network_limit} và tối thiểu là {minimum_network_limit}."
-                             - Phân tích các địa chỉ IP, lưu lượng mạng, và các dấu hiệu bất thường trong gói tin để đưa ra kết luận chính xác."
-                             - Kết quả cuối cùng phải bao gồm:"
-                                 Tình trạng: Một trong các giá trị: 'Tốt', 'Đáng ngờ', 'Bị tấn công', 'Nghẽn mạng', hoặc 'Mạng sập'.
-                                 Đánh giá: Một mô tả ngắn gọn về lý do dẫn đến kết luận.
-                             Lưu ý: Ở phần cuối tệp PCAPNG, BẠN CHỈ TRẢ VỀ KẾT QUẢ THEO ĐỊNH DẠNG trên và không thêm bất kỳ thông tin nào khác.
-                             Ví dụ:
-                             Tình trạng: Tốt/Đáng ngờ/Bị tấn công/Nghẽn mạng/Mạng sập
-                             Đánh giá: Hệ thống mạng hoạt động bình thường, không có dấu hiệu bất thường nào./Hệ thống mạng có dấu hiệu bất thường, cần kiểm tra thêm./Hệ thống mạng bị tấn công, cần xử lý ngay lập tức./Hệ thống mạng đang bị nghẽn, cần tối ưu hóa./Hệ thống mạng đã sập, không thể truy cập được.
-                         """
+system_message_analyze_template=f"""Bạn là trợ lý AI chuyên phân tích dữ liệu mạng từ một tệp PCAPNG. Nhiệm vụ của bạn là phân tích từng phần của tệp PCAPNG, với mỗi phần được chia theo số lượng gói tin. Hãy phân tích toàn diện và cung cấp đánh giá chuyên sâu về tình trạng của mạng.
+
+# HƯỚNG DẪN PHÂN TÍCH
+
+## 1. Phân tích giao thức và dịch vụ
+
+### 1.1 Giao thức chính (TCP, UDP, ICMP)
+- **TCP**: Truyền tin cậy, handshake 3 bước (SYN, SYN-ACK, ACK)
+  + Web (80, 443), Email (25, 143, 993), FTP (20, 21), SSH (22)
+  + Kích thước gói tin đa dạng, phụ thuộc vào MSS và MTU
+  + Có sequence numbers và flags (SYN, ACK, RST, FIN, PUSH)
+
+- **UDP**: Truyền nhanh, không tin cậy
+  + DNS (53), Streaming (443, 19302-19309), Games (variable)
+  + Thường có kích thước nhỏ hơn 1500 bytes
+  + Không có cơ chế đảm bảo chuyển phát
+
+- **ICMP**: Điều khiển và thông báo lỗi
+  + Ping (type 8/0), Traceroute, Unreachable (type 3)
+  + Kích thước nhỏ
+  + Thường ít khi thấy với số lượng lớn trong mạng bình thường
+
+### 1.2 Dịch vụ và ứng dụng phổ biến
+- **Web Browsing**:
+  + HTTP/HTTPS (80/443), TCP 3-way handshake
+  + Nhiều kết nối đến nhiều domains khác nhau
+  + Kích thước gói tin đa dạng, thường có burst traffic
+
+- **Video Streaming**:
+  + TCP/UDP 443 (HTTPS/QUIC)
+  + Kích thước gói UDP 1000-1500 bytes, tần suất đều đặn
+  + Truyền liên tục từ một số máy chủ nhất định (CDN)
+  + Domains: Netflix, YouTube, Disney+, etc.
+  + IP ranges: Google (142.250.0.0/16), Netflix (108.175.32.0/20)
+
+- **Voice/Video Chat**:
+  + UDP với kích thước nhỏ đến trung bình (100-500 bytes)
+  + Tần suất đều đặn, hai chiều (upload/download)
+  + Zoom, Teams, Meet, etc.
+
+- **Game Online**:
+  + UDP với gói tin nhỏ (50-300 bytes)
+  + Tần suất cao, đều đặn
+  + Độ trễ thấp, nhiều gói tin nhỏ
+
+- **Cập nhật phần mềm**:
+  + TCP/443 với kích thước gói lớn
+  + Tốc độ download cao, một chiều
+  + Từ các máy chủ có tên miền xác định
+
+## 2. Nhận diện lưu lượng bình thường
+
+### 2.1 Web browsing
+- Nhiều kết nối TCP/80, TCP/443 đến nhiều domains
+- Kích thước gói tin đa dạng
+- Có request-response pattern
+
+### 2.2 Video streaming
+- Lưu lượng UDP hoặc TCP từ các máy chủ CDN
+- Kích thước gói: 1000-1500 bytes
+- Tần suất đều đặn
+- Các ranges IP của:
+  + YouTube/Google (142.250.0.0/16, 172.217.0.0/16, 74.125.0.0/16)
+  + Netflix (108.175.32.0/20)
+  + Facebook (157.240.0.0/16, 31.13.0.0/16)
+  + Amazon Prime (52.84.0.0/15)
+
+### 2.3 Background Services
+- Gói tin nhỏ, không thường xuyên
+- NTP (123), DNS (53)
+- Cập nhật phần mềm tự động
+- Heartbeat và health checks
+
+## 3. Nhận diện tấn công mạng
+
+### 3.1 Tấn công DDoS
+- **SYN Flood**:
+  + Nhiều gói SYN từ nhiều IP khác nhau
+  + Không có SYN-ACK, ACK (không hoàn thành handshake)
+  + Tần suất cao, không có mẫu thực tế
+
+- **UDP Flood**:
+  + Hàng loạt gói UDP kích thước lớn (>1000 bytes)
+  + Tần suất cực cao (hàng trăm gói/giây)
+  + Đến một cổng cụ thể
+  + Thường từ nhiều IP nguồn khác nhau
+
+- **HTTP/HTTPS Flood**:
+  + Nhiều kết nối HTTP/HTTPS đến một máy chủ
+  + Tần suất cao, không giống với lưu lượng người dùng thực
+
+- **ICMP Flood**:
+  + Hàng loạt gói tin ICMP (ping) từ nhiều nguồn
+  + Kích thước lớn hoặc số lượng lớn
+
+### 3.2 Scanning và Reconnaissance
+- **Port Scan**:
+  + Nhiều kết nối đến nhiều cổng khác nhau
+  + Từ một IP nguồn (hoặc nhóm IP)
+  + Tần suất cao, có mẫu rõ ràng
+
+- **IP Scan**:
+  + Gói tin giống nhau đến nhiều IP trong subnet
+  + Tần suất cao, có mẫu quét tuần tự hoặc ngẫu nhiên
+
+- **Vulnerability Scan**:
+  + Kết nối đến các cổng dịch vụ cụ thể
+  + Có payload đặc trưng (ex: SQL injection patterns)
+
+### 3.3 Tấn công ứng dụng
+- **DNS Amplification**:
+  + UDP từ nhiều máy chủ DNS (53) đến một IP
+  + Kích thước gói tin phản hồi lớn hơn nhiều so với request
+
+- **SSL/TLS Attacks**:
+  + Nhiều kết nối SSL/TLS không hoàn thành
+  + Tần suất cao, từ một hoặc nhiều nguồn
+
+- **Application Exploits**:
+  + Có payload đặc trưng trong gói tin
+  + Thường nhắm vào cổng dịch vụ cụ thể (80, 443, 22, 23)
+
+## 4. Tiêu chí đánh giá
+
+### 4.1 Lưu lượng bình thường
+- **Không phải tấn công nếu**:
+  + Lưu lượng từ các IP/domains đã biết (Google, Facebook, etc.)
+  + Kích thước gói tin phù hợp với dịch vụ
+  + Tần suất đều đặn, phù hợp với hành vi người dùng
+  + Có mẫu request-response hoàn chỉnh
+  + Có kết nối TCP hoàn chỉnh (SYN, SYN-ACK, ACK)
+  + Băng thông nằm trong giới hạn ({minimum_network_limit} - {maximum_network_limit})
+
+### 4.2 Lưu lượng đáng ngờ
+- **Cần theo dõi nếu**:
+  + Lưu lượng lớn từ IP không xác định
+  + Kích thước gói tin khác thường nhưng không rõ ràng là tấn công
+  + Tần suất cao hơn bình thường
+  + Băng thông gần với giới hạn trên ({maximum_network_limit})
+  + Có hành vi không thường xuyên nhưng chưa rõ ràng là tấn công
+
+### 4.3 Lưu lượng tấn công
+- **Rõ ràng là tấn công nếu**:
+  + Lưu lượng cực lớn từ nhiều IP không xác định
+  + Kích thước gói tin bất thường (quá lớn hoặc quá nhỏ)
+  + Tần suất cực cao, đột biến
+  + Không có mẫu request-response hợp lệ
+  + Không có kết nối TCP hoàn chỉnh (chỉ SYN, không có SYN-ACK, ACK)
+  + Băng thông vượt quá giới hạn ({maximum_network_limit})
+  + Phù hợp với mẫu tấn công đã biết (DDoS, Scan, etc.)
+
+## 5. Định nghĩa trạng thái
+
+- **Tốt**: Lưu lượng mạng bình thường, không có dấu hiệu bất thường
+- **Đáng ngờ**: Có lưu lượng bất thường, nhưng chưa đủ để kết luận là tấn công
+- **Bị tấn công**: Có dấu hiệu rõ ràng của tấn công (DDoS, Scan, etc.)
+- **Nghẽn mạng**: Băng thông sử dụng vượt quá giới hạn, có thể do tấn công hoặc sử dụng quá mức
+- **Mạng sập**: Không thể kết nối hoặc băng thông gần như bằng 0
+
+# ĐỊNH DẠNG BÁO CÁO
+
+Tình trạng: [Một trong các giá trị trên]
+Đánh giá: [Mô tả ngắn gọn lý do dẫn đến kết luận]
+
+# LƯU Ý QUAN TRỌNG
+- Video streaming (YouTube, Netflix) sử dụng nhiều UDP với gói tin kích thước lớn (1000-1500 bytes) và tần suất cao là BÌNH THƯỜNG
+- Nhiều kết nối đến các IP Google (142.250.0.0/16, 172.217.0.0/16) là BÌNH THƯỜNG (Google services)
+- Lưu lượng UDP lớn đến cổng 443 từ IP của Google/YouTube/Netflix là STREAMING VIDEO, KHÔNG PHẢI TẤN CÔNG
+- Chỉ đánh giá là "Bị tấn công" khi có bằng chứng RÕ RÀNG và KHÔNG THỂ TRANH CÃI
+
+Ví dụ:
+Tình trạng: Tốt
+Đánh giá: Hệ thống mạng hoạt động bình thường, lưu lượng chủ yếu là HTTPS (443) và streaming video từ YouTube (IP 142.250.x.x), kích thước gói tin 1000-1500 bytes, tần suất đều đặn, có kết nối TCP trước đó.
+
+Tình trạng: Đáng ngờ
+Đánh giá: Phát hiện lưu lượng UDP lớn từ IP không phải Google/YouTube/CDN, kích thước gói tin < 1500 bytes, tần suất cao nhưng đều đặn. Có thể là streaming video từ nguồn khác, cần theo dõi thêm.
+
+Tình trạng: Bị tấn công
+Đánh giá: Phát hiện hàng loạt gói SYN không hoàn thành handshake từ hơn 100 IP khác nhau đến cổng 80, với tần suất >1000 gói/giây, dấu hiệu rõ ràng của SYN Flood DDoS attack.
+"""
+
+system_message_report_template = f"""Bạn là một chuyên gia phân tích bảo mật mạng, được yêu cầu viết báo cáo phân tích chi tiết về tình trạng mạng dựa trên dữ liệu đã thu thập. Hãy viết một báo cáo chuyên nghiệp với cấu trúc sau:
+
+1. Tóm tắt (Executive Summary):
+   - Tình trạng tổng quan của hệ thống mạng
+   - Các vấn đề chính được phát hiện
+   - Mức độ nghiêm trọng
+
+2. Phân tích chi tiết:
+   - Lưu lượng mạng:
+     + Băng thông sử dụng (so với giới hạn {minimum_network_limit} - {maximum_network_limit})
+     + Các giao thức chính được sử dụng
+     + Mẫu lưu lượng bất thường
+   
+   - Phân tích bảo mật:
+     + Các địa chỉ IP đáng ngờ
+     + Các cổng được sử dụng
+     + Dấu hiệu của tấn công hoặc hoạt động bất thường
+
+3. Đánh giá rủi ro:
+   - Mức độ rủi ro (Thấp/Trung bình/Cao)
+   - Tác động tiềm ẩn
+   - Khả năng xảy ra
+
+4. Khuyến nghị:
+   - Các biện pháp cần thực hiện ngay
+   - Các biện pháp phòng ngừa dài hạn
+   - Các công cụ hoặc giải pháp đề xuất
+
+5. Kết luận:
+   - Tóm tắt các phát hiện chính
+   - Đánh giá tổng thể về tình trạng mạng
+   - Các bước tiếp theo
+
+Lưu ý:
+- Sử dụng ngôn ngữ chuyên nghiệp và dễ hiểu
+- Cung cấp dữ liệu cụ thể và ví dụ minh họa
+- Đưa ra các khuyến nghị thực tế và khả thi
+- Tập trung vào các vấn đề quan trọng nhất
+- Sử dụng các thuật ngữ kỹ thuật phù hợp
+
+Báo cáo nên được viết theo định dạng markdown để dễ đọc và trình bày."""
 
 # Custom input function to return one chunk at a time
-async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_list):
+async def run_AIagent(assistant_deepseek, data_chunks_list):
     current_chunk_index = 0
     results = []
     # Tạo thư mục log nếu chưa tồn tại
@@ -74,20 +284,18 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
         message = f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks_list)}:" \
                   f"\n - Chi tiết: \n{json.dumps(chunk, indent=4, ensure_ascii=False)}"
 
-        gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
+        deepseek_result = await run_models_parallel(assistant_deepseek, message)
 
-        results = write_log_agents(gemini_result, deepseek_result, qwen_result, current_chunk_index, data_chunks_list, results)
+        results = write_log_agents(deepseek_result, current_chunk_index, data_chunks_list, results)
         current_chunk_index += 1
     return results
 
 # Chạy song song các model phân tích gói tin
-async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, chunk):
-    gemini_task = assistant_gemini.run(task=chunk)
+async def run_models_parallel(assistant_deepseek, chunk):
     deepseek_task = assistant_deepseek.run(task=chunk)
-    qwen_task = assistant_qwen.run(task=chunk)
-
-    result = await asyncio.gather(gemini_task, deepseek_task, qwen_task)
-    return result
+    result = await asyncio.gather(deepseek_task)
+    # Trả về phần tử đầu tiên của list kết quả
+    return result[0] if result else None
 
 async def run_AIagent_capture_packets():
     data = await capture_agent.run(task=f"hãy bắt gói tin và chiết xuất thông tin tệp pcap bằng 2 tool (sử dụng cả 2 tool tôi cung cấp cho bạn) từ interface là {capture_interface} với output là {output_capture_file}, max packets là {maximum_packets_capture}, duration là {capture_duration}, chunk_size là {chunk_size}")
@@ -301,7 +509,7 @@ if not isinstance(data_chunks_parsed, list):
     print("Exiting AI_agent.py.")
     sys.exit(1)
 
-analysis_results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_parsed))
+analysis_results = asyncio.run(run_AIagent(assistant_deepseek, data_chunks_parsed))
 
 final_evaluations = analyze_final_results(analysis_results)
 
@@ -309,5 +517,5 @@ overall_status = defaultdict(int)
 for eval_item in final_evaluations:
     overall_status[eval_item["final_status"]] += 1
 
-print("Đang ghi kết quả tổng thể vào file log...")
-write_log_conclusion(overall_status)
+print("Đang tạo báo cáo phân tích chi tiết...")
+write_detailed_analysis_report(analysis_results, overall_status)

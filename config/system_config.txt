@@ -1,15 +1,15 @@
 # Giao diện bắt gói tin
-capture_interface="Wi-Fi"
+capture_interface="wlp3s0"
 
 # Thời gian bắt gói tin để lưu thành pcapng
-capture_duration=5
+capture_duration=10
 
 # Số lượng gói tin bắt được trong capture_duration, tránh tình trạng bắt quá nhiều gói tin
-maximum_packets_capture=2000
+maximum_packets_capture=300
 
 # Đường dẫn file bắt được
 output_capture_file="content/captured_network.pcapng"
 
 # Quy định giới hạn băng thông mạng của hệ thống
-minimum_network_limit="100 Mbs"
-maximum_network_limit="100 Mbs"
+minimum_network_limit="500 Mbs"
+maximum_network_limit="1000 Mbs"
