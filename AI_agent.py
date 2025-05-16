@@ -12,13 +12,14 @@ from tools.log_tool import write_log_tool, read_log_tool
 from autogen_core.tools import FunctionTool
 
 # Template cho các system message
-from system_message_template.message_template import analyze_final_results_template, analyze_template
+from system_message_template.message_template import analyze_template, writer_template
 import datetime
 from dotenv import load_dotenv
-from network_evaluation import evaluate_results
+from network_evaluation import evaluate_results, STATUS_WEIGHTS
 from collections import defaultdict
 import asyncio
 from write_log import write_log_agents, write_log_conclusion
+import time
 
 sys.stdout.reconfigure(encoding='utf-8')
 print("Đang chạy AI agent...")
@@ -52,12 +53,10 @@ if not GEMINI_API_KEY:
 async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_list):
     current_chunk_index = 0
     results = []
-    # Tạo thư mục log nếu chưa tồn tại
 
     print("Đang phân tích tệp tin PCAPNG...")
     if not isinstance(data_chunks_list, list):
-        print(f"Error: Expected data_chunks_list to be a list, but got {type(data_chunks_list)}")
-       
+        print(f"Error: Expected data_chunks_list to be a list, but got {type(data_chunks_list)}")     
         return results
 
     while current_chunk_index < len(data_chunks_list):
@@ -89,29 +88,30 @@ def analyze_final_results(results):
     # Chia results thành các nhóm 3 (gemini, deepseek, qwen)
     grouped_results = [results[i:i+3] for i in range(0, len(results), 3)]
     final_evaluations = []
+    evaluations_data = []
 
     # Mở file log tổng hợp để ghi kết quả đánh giá
     log_file = os.path.join("log", "network_analysis_log.txt")
 
     with open(log_file, "a", encoding="utf-8") as f:
-        # Ghi header cho phần đánh giá
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        f.write("\n" + "-"*50 + "\n")
-        f.write(f"\n\n=== ĐÁNH GIÁ TỔNG HỢP - {timestamp} ===\n")
-        f.write(f"Tổng số phần dữ liệu: {len(grouped_results)}\n")
 
         for idx, group in enumerate(grouped_results):
             evaluation = evaluate_results(group)
             final_evaluations.append(evaluation)
-
-            # Ghi thông tin phần hiện tại
+            
+            # Lưu thông tin đánh giá để chuẩn bị cho báo cáo tổng hợp
             part_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            f.write(f"\n[PHẦN {idx+1}/{len(grouped_results)} - {part_timestamp}]\n")
-
-            # Ghi kết quả đánh giá
-            f.write(f"Tình trạng: {evaluation['final_status']}\n")
-            f.write(f"Đánh giá: {evaluation['final_review']}\n")
-    return final_evaluations
+            evaluation_data = {
+                "part": idx+1,
+                "total_parts": len(grouped_results),
+                "timestamp": part_timestamp,
+                "status": evaluation['final_status'],
+                "review": evaluation['final_review'],
+                "details": evaluation['details']
+            }
+            evaluations_data.append(evaluation_data)
+            
+    return final_evaluations, evaluations_data
 
 # Cấu hình model AI
 gemini_model = OpenAIChatCompletionClient(
@@ -123,18 +123,14 @@ gemini_model = OpenAIChatCompletionClient(
         "json_output": True,
         "structured_output": True,
     }
-    #model="deepseek-chat",
-    #base_url="https://api.deepseek.com",
-    #api_key=DEEPSEEK_API_KEY,
-
 )
 
 deepseek_model = OpenAIChatCompletionClient(
-    model="gemini-2.0-flash",
-    api_key=GEMINI_API_KEY,
-    # model="deepseek-chat",
-    # base_url="https://api.deepseek.com",
-    # api_key=DEEPSEEK_API_KEY,
+    #model="gemini-2.0-flash",
+    #api_key=GEMINI_API_KEY,
+    model="deepseek-chat",
+    base_url="https://api.deepseek.com",
+    api_key=DEEPSEEK_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
@@ -143,13 +139,12 @@ deepseek_model = OpenAIChatCompletionClient(
     },
 )
 
-qwen_model = OpenAIChatCompletionClient(
-    model="gemini-2.0-flash",
+llama_model = OpenAIChatCompletionClient(
+    #model="meta-llama/llama-3.3-8b-instruct:free",
     #base_url="https://openrouter.ai/api/v1",
+    #api_key=OPENROUTER_API_KEY,
+    model="gemini-2.0-flash",
     api_key=GEMINI_API_KEY,
-    # model="deepseek-chat",
-    # base_url="https://api.deepseek.com",
-    # api_key=DEEPSEEK_API_KEY,
     model_capabilities={
         "vision": True,
         "function_calling": True,
@@ -183,10 +178,16 @@ assistant_deepseek = AssistantAgent(
 
 assistant_qwen = AssistantAgent(
     name="Assistant",
-    model_client=gemini_model,
+    model_client=llama_model,
     system_message=analyze_template(maximum_network_limit, minimum_network_limit),
 )
-# data_chunks = "[[{'time': 1746621874.48171, 'src_ip': '192.168.1.95', 'dst_ip': '140.82.113.21', 'protocol': 6, 'size': 532, 'src_port': 60299, 'dst_port': 443}, {'time': 1746621876.916728, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.2', 'protocol': 2, 'size': 46}, {'time': 1746621876.925393, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621876.926569, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 78, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.926708, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 220, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.926826, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 200, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.927403, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 17, 'size': 72, 'src_port': 53470, 'dst_port': 5355}, {'time': 1746621876.928015, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.2', 'protocol': 2, 'size': 46}, {'time': 1746621876.931735, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621876.932235, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 78, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.932606, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 200, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621876.93299, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 17, 'size': 72, 'src_port': 55602, 'dst_port': 5355}, {'time': 1746621877.231735, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.252', 'protocol': 2, 'size': 46}, {'time': 1746621878.15456, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 335, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.155154, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.405297, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}, {'time': 1746621878.659373, 'src_ip': '192.168.1.95', 'dst_ip': '224.0.0.251', 'protocol': 17, 'size': 90, 'src_port': 5353, 'dst_port': 5353}]]"
+
+assistant_writer = AssistantAgent(
+    name="Assistant",
+    model_client=deepseek_model,
+    system_message=writer_template(),
+)
+
 data_chunks_from_tool = None # Renamed from data_chunks to avoid confusion before parsing
 is_network_captured = False
 
@@ -295,11 +296,54 @@ if not isinstance(data_chunks_parsed, list):
 
 analysis_results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_parsed))
 
-final_evaluations = analyze_final_results(analysis_results)
+final_evaluations, evaluations_data = analyze_final_results(analysis_results)
 
 overall_status = defaultdict(int)
 for eval_item in final_evaluations:
     overall_status[eval_item["final_status"]] += 1
 
-print("Đang ghi kết quả tổng thể vào file log...")
-write_log_conclusion(overall_status)
+# Tạo báo cáo tổng hợp bằng assistant_writer
+print("Đang tạo báo cáo tổng hợp...")
+# Chuẩn bị input cho assistant_writer
+evaluations_text = ""
+for eval_data in evaluations_data:
+    evaluations_text += f"[PHẦN {eval_data['part']}/{eval_data['total_parts']} - {eval_data['timestamp']}]\n"
+    evaluations_text += f"**Tình trạng:** {eval_data['status']}\n"
+    evaluations_text += f"**Đánh giá:** {eval_data['review']}\n\n"
+
+# Thêm thông tin tổng hợp
+summary_text = f"Thống kê trạng thái:\n"
+for status, count in overall_status.items():
+    summary_text += f"- {status}: {count} phần\n"
+
+# Xác định trạng thái cuối cùng
+if overall_status:
+    sorted_statuses = sorted(overall_status.keys(),
+                          key=lambda x: STATUS_WEIGHTS.get(x, 0),
+                          reverse=True)
+    if sorted_statuses:
+        final_status = sorted_statuses[0]
+    else:
+        final_status = "Không xác định"
+else:
+    final_status = "Không xác định"
+
+summary_text += f"\nTrạng thái cuối cùng: {final_status}\n"
+
+# Gửi đến assistant_writer để viết báo cáo
+writer_input = f"Dữ liệu phân tích mạng:\n\n{evaluations_text}\n{summary_text}"
+report_result = asyncio.run(assistant_writer.run(task=writer_input))
+
+# Ghi kết luận tổng thể
+print("Đang ghi kết luận tổng thể vào file log...")
+write_log_conclusion(overall_status, report_result.messages)
+
+# Cập nhật timestamp phân tích để web page biết khi nào cần reload
+try:
+    timestamp_file = os.path.join("log", "analysis_timestamp.txt")
+    os.makedirs(os.path.dirname(timestamp_file), exist_ok=True)
+    with open(timestamp_file, 'w', encoding='utf-8') as f:
+        f.write(str(int(time.time())))
+    print("Đã cập nhật timestamp phân tích mới nhất.")
+except Exception as e:
+    print(f"[ERROR] Lỗi khi cập nhật timestamp phân tích: {e}")

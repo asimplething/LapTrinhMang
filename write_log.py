@@ -15,7 +15,7 @@ def write_log_capture(pcap_file):
         except Exception as e:
             print(f"Ghi log vào capture_log.txt không thành công: {e}")
 
-        string = (f"=== {timestamp} ===\n"
+        string = (f"## {timestamp}\n"
                   f"Kích thước file: {file_size} bytes\n"
                   f"Số lượng gói tin đã bắt: {packet_count}\n")
         f.write(string + "\n")
@@ -26,7 +26,7 @@ def write_log_agents(gemini, deepseek, qwen, current_chunk_index, chunks, result
         os.makedirs(log_dir)
     gemini_log_file = os.path.join(log_dir, "gemini_log.txt")
     deepseek_log_file = os.path.join(log_dir, "deepseek_log.txt")
-    qwen_log_file = os.path.join(log_dir, "qwen_log.txt")
+    llama_log_file = os.path.join(log_dir, "llama_log.txt")
     #Ghi log Gemini
     with open(gemini_log_file, "a", encoding="utf-8") as f:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -48,7 +48,7 @@ def write_log_agents(gemini, deepseek, qwen, current_chunk_index, chunks, result
                 results.append(cleaned_content)
         f.write("\n")
 
-    with open(qwen_log_file, "a", encoding="utf-8") as f:
+    with open(llama_log_file, "a", encoding="utf-8") as f:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(chunks)}\n")
         for response in qwen.messages:
@@ -60,27 +60,36 @@ def write_log_agents(gemini, deepseek, qwen, current_chunk_index, chunks, result
 
     return results
 
-def write_log_conclusion(overall_status):
+def write_log_conclusion(overall_status, messages):
     with open(os.path.join("log", "network_analysis_log.txt"), "a", encoding="utf-8") as f:
+        
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        f.write(f"\n\n=== KẾT LUẬN TỔNG THỂ - {timestamp} ===\n")
+        f.write("\n" + "-"*50 + "\n")
+        f.write(f"\n\n## {timestamp}\n")
+        f.write(f"## ĐÁNH GIÁ TỔNG HỢP\n\n")
 
-        f.write("Thống kê trạng thái:\n")
-        for status, count in overall_status.items():
-            f.write(f"- {status}: {count} phần\n")
+        # Extract status from assistant_writer's report
+        final_status = "Không xác định"
+        writer_content = ""
+        
+        # Get the content from assistant_writer
+        for message in messages:
+            if message.source == "Assistant":
+                writer_content = message.content
+                f.write(writer_content)
+                print("Báo cáo tổng hợp đã được ghi vào file log.")
+                
+                # Extract status from TÓM TẮT NHANH section
+                if "### TÓM TẮT NHANH" in writer_content:
+                    status_lines = writer_content.split("### TÓM TẮT NHANH")[1].split("\n")
+                    for line in status_lines:
+                        if "Trạng thái:" in line:
+                            final_status = line.split("Trạng thái:")[1].strip()
+                            break
+                        # Break if we've reached the next section
+                        if line.strip().startswith("###"):
+                            break
 
-        if overall_status:
-            sorted_statuses = sorted(overall_status.keys(),
-                                    key=lambda x: STATUS_WEIGHTS.get(x, 0),
-                                    reverse=True)
-
-            if sorted_statuses:
-                final_status = sorted_statuses[0]
-                conclusion = f"Hệ thống ở trạng thái {final_status}."
-            else:
-                conclusion = "Không thể xác định trạng thái từ các mục đã xử lý (sorted_statuses was empty)."
-        else:
-            conclusion = "Không có dữ liệu để đánh giá (overall_status was empty)"
-
-        f.write("\nKẾT LUẬN:\n")
-        f.write(conclusion + "\n")
+        # Write the conclusion using the status from assistant_writer
+        f.write(f"\n\n## KẾT LUẬN TỔNG THỂ\n")
+        f.write(f"Hệ thống ở trạng thái {final_status}.\n")

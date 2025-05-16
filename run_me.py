@@ -1,22 +1,25 @@
-# -*- coding: utf-8 -*-
 from flask import Flask, render_template_string, request, redirect, url_for, abort
+from markupsafe import Markup
 import os
 from threading import Thread
 import time
-import json # Giữ lại nếu các phần của web_viewer sử dụng, mặc dù không trực tiếp trong logic C++
-from collections import defaultdict # Giữ lại nếu được sử dụng
-import subprocess # Để chạy các tiến trình bên ngoài (thay thế system() của C++)
-import sys # Để có thể truy cập sys.getdefaultencoding() nếu cần
+import json
+from collections import defaultdict 
+import subprocess
+import sys 
+import markdown 
+import re
 sys.stdout.reconfigure(encoding='utf-8')
 # ----- Các hằng số và biến toàn cục -----
 LOG_DIR = "log"
 MAIN_LOG_FILE = os.path.join(LOG_DIR, "network_analysis_log.txt")
 CONFIG_FILE = "config/system_config.txt" # Giống C++
+ANALYSIS_TIMESTAMP_FILE = os.path.join(LOG_DIR, "analysis_timestamp.txt")
 VIEWABLE_LOG_FILES = {
     "capture": "capture_log.txt",
     "gemini": "gemini_log.txt",
     "deepseek": "deepseek_log.txt",
-    "qwen": "qwen_log.txt",
+    "llama": "llama_log.txt",
     "network_analysis": "network_analysis_log.txt" # Log chính cũng có thể xem ở đây
 }
 
@@ -31,7 +34,14 @@ def parse_log_file():
         with open(MAIN_LOG_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        log_parts = content.split('=== ĐÁNH GIÁ TỔNG HỢP - ')[1:]
+        # Tìm các khối đánh giá tổng hợp
+        log_parts = []
+        
+        # Thử nhiều định dạng khác nhau
+        if '## ĐÁNH GIÁ TỔNG HỢP' in content:  # Định dạng mới nhất
+            log_parts = content.split('## ĐÁNH GIÁ TỔNG HỢP')[1:]
+        elif '=== ĐÁNH GIÁ TỔNG HỢP' in content:  # Định dạng cũ
+            log_parts = content.split('=== ĐÁNH GIÁ TỔNG HỢP')[1:]
 
         if not log_parts:
             return {
@@ -40,20 +50,55 @@ def parse_log_file():
                 'full_log_summary': content
             }
 
+        # Lấy đánh giá mới nhất
         latest_eval_session = log_parts[-1]
-        current_status = 'Đang phân tích' # Mặc định
+        
+        # Trích xuất kết luận tổng thể từ đánh giá mới nhất
+        conclusion_part = ""
+        
+        # Kiểm tra nhiều định dạng kết luận có thể có
+        conclusion_markers = [
+            '## KẾT LUẬN TỔNG THỂ', 
+            '=== KẾT LUẬN TỔNG THỂ',
+            '## KẾT LUẬN:', 
+            '## KẾT LUẬN TỔNG THỂ -'
+        ]
+        
+        # Tìm đoạn báo cáo từ assistant_writer (giữa ĐÁNH GIÁ TỔNG HỢP và KẾT LUẬN TỔNG THỂ)
+        report_part = latest_eval_session
+        for marker in conclusion_markers:
+            if marker in report_part:
+                report_part = report_part.split(marker)[0]
+        
+        # Tìm phần kết luận
+        for marker in conclusion_markers:
+            if marker in latest_eval_session:
+                conclusion_part = latest_eval_session.split(marker)[1]
+                break
 
-        if '=== KẾT LUẬN TỔNG THỂ - ' in latest_eval_session:
-            conclusion_part = latest_eval_session.split('=== KẾT LUẬN TỔNG THỂ - ')[1]
-            status_lines = [line for line in conclusion_part.split('\n') if line.startswith('Hệ thống ở trạng thái')]
+        current_status = 'Đang phân tích'  # Mặc định
+        
+        # Tìm dòng kết luận chứa trạng thái
+        if conclusion_part:
+            status_lines = [line for line in conclusion_part.split('\n') if 'Hệ thống ở trạng thái' in line]
             if status_lines:
                 current_status = status_lines[0].split('Hệ thống ở trạng thái ')[1].strip('.')
 
-        latest_evaluation_display = '=== ĐÁNH GIÁ TỔNG HỢP - ' + latest_eval_session
+        # Hiển thị chỉ báo cáo tổng hợp từ assistant_writer thay vì chi tiết phần
+        formatted_latest_eval = report_part.strip()
+        
+        # Nếu không có định dạng Markdown thích hợp, thêm định dạng mặc định
+        if not formatted_latest_eval or all(marker not in formatted_latest_eval for marker in ['### TÓM TẮT NHANH', '### PHÁT HIỆN CHÍNH']):
+            # Hiển thị thông tin trạng thái
+            formatted_latest_eval = "### Không tìm thấy báo cáo từ phân tích chi tiết\n\n"
+            if current_status:
+                formatted_latest_eval += f"**Trạng thái hiện tại:** {current_status}\n\n"
+            
+            # Nếu vẫn cần hiển thị các phần chi tiết như mã cũ, có thể thêm lại phần đó ở đây
 
         return {
             'current_status': current_status,
-            'latest_evaluation': latest_evaluation_display,
+            'latest_evaluation': formatted_latest_eval,
             'full_log_summary': content
         }
     except FileNotFoundError:
@@ -115,58 +160,239 @@ DASHBOARD_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <title>Network Analysis Dashboard</title>
-    <meta http-equiv="refresh" content="10">
+    <script>
+        // Store the current timestamp to check for updates
+        let lastAnalysisTime = "{{ analysis_timestamp }}";
+        
+        // Function to check if there's a new analysis and reload if needed
+        function checkForUpdates() {
+            fetch('/analysis-timestamp')
+                .then(response => response.text())
+                .then(timestamp => {
+                    if (timestamp !== lastAnalysisTime) {
+                        console.log("New analysis detected, reloading page");
+                        window.location.reload();
+                    } else {
+                        console.log("No new analysis, waiting...");
+                        setTimeout(checkForUpdates, 5000); // Check every 5 seconds
+                    }
+                })
+                .catch(error => {
+                    console.error("Error checking for updates:", error);
+                    setTimeout(checkForUpdates, 5000); // Retry in 5 seconds
+                });
+        }
+
+        // Start checking for updates when page loads
+        window.onload = function() {
+            setTimeout(checkForUpdates, 5000);
+        }
+    </script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
-        .dashboard { display: grid; grid-template-areas: "header header" "status latest" "logs-links logs-links" "full-log full-log"; grid-gap: 20px; }
-        .card { background-color: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        .header { grid-area: header; background-color: #4285f4; color: white; text-align: center; }
+        body { 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f8f9fa; 
+            color: #333; 
+        }
+        .dashboard { 
+            display: grid; 
+            grid-template-areas: 
+                "header header" 
+                "status latest" 
+                "logs-links logs-links" 
+                "full-log full-log"; 
+            grid-gap: 20px; 
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .card { 
+            background-color: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: box-shadow 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        .header { 
+            grid-area: header; 
+            background: linear-gradient(135deg, #4285f4, #34a853); 
+            color: white; 
+            text-align: center;
+            padding: 25px 20px;
+        }
         .status-card { grid-area: status; }
         .latest-card { grid-area: latest; }
         .logs-links-card { grid-area: logs-links; }
         .full-log-card { grid-area: full-log; }
-        .status-indicator { font-size: 1.5em; font-weight: bold; padding: 10px; border-radius: 5px; text-align: center; margin-top: 10px; }
+        .status-indicator { 
+            font-size: 1.8em; 
+            font-weight: bold; 
+            padding: 15px; 
+            border-radius: 8px; 
+            text-align: center; 
+            margin: 15px 0;
+            transition: all 0.3s ease;
+        }
         .good { background-color: #34a853; color: white; }
         .suspicious { background-color: #fbbc05; color: black; }
         .attack { background-color: #ea4335; color: white; }
         .normal { background-color: #4285f4; color: white; }
         pre { white-space: pre-wrap; word-wrap: break-word; background-color: #f8f9fa; padding: 15px; border-radius: 3px; max-height: 300px; overflow-y: auto; }
-        h2 { margin-top: 0; border-bottom: 1px solid #eee; padding-bottom: 10px; }
-        .timestamp { color: white; font-size: 0.9em; text-align: right; }
-        .nav-button { margin: 5px; padding: 10px 15px; background-color: #34a853; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 1em; text-decoration: none; display: inline-block; }
-        .nav-button:hover { background-color: #2e8b57; }
-        .log-link-button { background-color: #5bc0de; }
-        .log-link-button:hover { background-color: #31b0d5; }
+        .markdown-content { 
+            background-color: #f8f9fa; 
+            padding: 20px; 
+            border-radius: 6px; 
+            max-height: 500px; 
+            overflow-y: auto;
+            line-height: 1.6;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
+        }
+        h1 { 
+            margin-top: 0; 
+            font-size: 2.5em;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        h2 { 
+            margin-top: 0; 
+            border-bottom: 2px solid #eee; 
+            padding-bottom: 10px; 
+            color: #4285f4;
+            font-size: 1.5em;
+        }
+        h3 {
+            color: #34a853;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+        .timestamp { 
+            color: rgba(255,255,255,0.8); 
+            font-size: 0.9em; 
+            margin-top: 10px;
+        }
+        .nav-button { 
+            margin: 10px 5px; 
+            padding: 12px 20px; 
+            background-color: #34a853; 
+            color: white; 
+            border: none; 
+            border-radius: 30px; 
+            cursor: pointer; 
+            font-size: 1em; 
+            text-decoration: none; 
+            display: inline-block;
+            transition: all 0.3s ease;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .nav-button:hover { 
+            background-color: #2e8b57; 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        .log-link-button { 
+            background-color: #5bc0de;
+            font-weight: normal; 
+        }
+        .log-link-button:hover { 
+            background-color: #31b0d5; 
+        }
+        /* Định dạng cho phần tử markdown */
+        .markdown-content p { margin: 1em 0; }
+        .markdown-content strong { 
+            font-weight: bold; 
+            color: #0d6efd;
+        }
+        .markdown-content ul { 
+            margin-left: 20px;
+            padding-left: 20px;
+        }
+        .markdown-content li {
+            margin-bottom: 5px;
+        }
+        .markdown-content .list-item {
+            padding: 4px 0;
+            margin-left: 20px;
+            display: block;
+        }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { 
+            margin-top: 1em; 
+            margin-bottom: 0.5em; 
+        }
+        .markdown-content h4 {
+            font-size: 1.1em;
+            margin-top: 0.8em;
+            margin-bottom: 0.3em;
+        }
+        .markdown-content code {
+            background-color: #f0f0f0;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .markdown-content pre {
+            background-color: #f0f0f0;
+            padding: 12px;
+            border-radius: 4px;
+            margin: 12px 0;
+            border-left: 4px solid #34a853;
+            overflow-x: auto;
+        }
+        .markdown-content pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-areas:
+                    "header"
+                    "status"
+                    "latest"
+                    "logs-links"
+                    "full-log";
+            }
+        }
     </style>
 </head>
 <body>
     <div class="dashboard">
         <div class="header card">
             <h1>Network Analysis Dashboard</h1>
-            <div class="timestamp">Last updated: {{ timestamp }}</div>
-            <a href="{{ url_for('configuration') }}" class="nav-button">Configuration</a>
+            <div class="timestamp">Cập nhật cuối: {{ timestamp }}</div>
+            <a href="{{ url_for('configuration') }}" class="nav-button">Cấu hình hệ thống</a>
         </div>
         <div class="status-card card">
-            <h2>Trạng thái hiện tại</h2>
+            <h2>Trạng thái mạng hiện tại</h2>
             <div class="status-indicator {{ status_class }}">
                 {{ current_status }}
             </div>
         </div>
         <div class="latest-card card">
-            <h2>Đánh giá mới nhất (từ network_analysis_log.txt)</h2>
-            <pre>{{ latest_evaluation }}</pre>
+            <h2>Đánh giá mới nhất</h2>
+            <div class="markdown-content">
+                {{ latest_evaluation|safe }}
+            </div>
         </div>
         <div class="logs-links-card card">
-            <h2>Xem chi tiết Logs</h2>
-            <a href="{{ url_for('view_specific_log', log_key='network_analysis') }}" class="nav-button log-link-button">Network Analysis Log</a>
-            <a href="{{ url_for('view_specific_log', log_key='capture') }}" class="nav-button log-link-button">Capture Log</a>
-            <a href="{{ url_for('view_specific_log', log_key='gemini') }}" class="nav-button log-link-button">Gemini Log</a>
-            <a href="{{ url_for('view_specific_log', log_key='deepseek') }}" class="nav-button log-link-button">Deepseek Log</a>
-            <a href="{{ url_for('view_specific_log', log_key='qwen') }}" class="nav-button log-link-button">Qwen Log</a>
+            <h2>Xem chi tiết nhật ký</h2>
+            <div style="text-align: center;">
+                <a href="{{ url_for('view_specific_log', log_key='network_analysis') }}" class="nav-button log-link-button">Network Analysis</a>
+                <a href="{{ url_for('view_specific_log', log_key='capture') }}" class="nav-button log-link-button">Capture</a>
+                <a href="{{ url_for('view_specific_log', log_key='gemini') }}" class="nav-button log-link-button">Gemini</a>
+                <a href="{{ url_for('view_specific_log', log_key='deepseek') }}" class="nav-button log-link-button">Deepseek</a>
+                <a href="{{ url_for('view_specific_log', log_key='llama') }}" class="nav-button log-link-button">Llama</a>
+            </div>
         </div>
         <div class="full-log-card card">
-            <h2>Toàn bộ nhật ký chính (network_analysis_log.txt)</h2>
-            <pre>{{ full_log_summary }}</pre>
+            <h2>Lịch sử đánh giá</h2>
+            <div class="markdown-content">
+                {{ full_log_summary|safe }}
+            </div>
         </div>
     </div>
 </body>
@@ -180,43 +406,319 @@ LOG_VIEW_TEMPLATE = """
     <meta charset="UTF-8">
     <title>View Log: {{ log_title }}</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
-        .container { background-color: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        pre { white-space: pre-wrap; word-wrap: break-word; background-color: #f8f9fa; padding: 15px; border-radius: 3px; max-height: 80vh; overflow-y: auto; }
-        a { color: #007bff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        /* Base styles */
+        body { 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container { 
+            background-color: white; 
+            padding: 25px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 40px);
+        }
+        
+        /* Header and layout */
+        .header {
+            margin-bottom: 20px;
+        }
+        .content-area {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+        }
+        .log-content { 
+            background-color: #f8f9fa; 
+            padding: 20px; 
+            border-radius: 6px; 
+            line-height: 1.6;
+            box-shadow: inset 0 0 5px rgba(0,0,0,0.05);
+            overflow-y: auto;
+            flex: 1;
+        }
+        
+        /* Links and buttons */
+        a { 
+            color: #4285f4; 
+            text-decoration: none; 
+            transition: all 0.3s;
+            font-weight: bold;
+        }
+        a:hover { 
+            text-decoration: underline;
+            color: #34a853; 
+        }
+        .back-button {
+            display: inline-block;
+            margin: 10px 0 20px;
+            padding: 10px 20px;
+            background-color: #4285f4;
+            color: white;
+            border-radius: 30px;
+            text-decoration: none;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            transition: all 0.3s;
+        }
+        .back-button:hover {
+            background-color: #3367d6;
+            text-decoration: none;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        /* Typography */
+        h2 { 
+            color: #4285f4; 
+            margin-top: 0;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+        }
+        .log-content p { margin: 1em 0; }
+        .log-content strong { font-weight: bold; color: #0d6efd; }
+        .log-content ul { 
+            margin-left: 20px; 
+            padding-left: 20px;
+        }
+        .log-content li {
+            margin-bottom: 5px;
+        }
+        .log-content .list-item {
+            padding: 4px 0;
+            margin-left: 20px;
+            display: block;
+        }
+        .log-content h1, .log-content h2, .log-content h3, .log-content h4 { 
+            margin-top: 1em; 
+            margin-bottom: 0.5em;
+            color: #34a853;
+        }
+        .log-content h4 {
+            font-size: 1.1em;
+            margin-top: 0.8em;
+            margin-bottom: 0.3em;
+        }
+        
+        /* Code blocks */
+        .log-content code {
+            background-color: #f0f0f0;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        pre { 
+            white-space: pre-wrap; 
+            word-wrap: break-word; 
+            background-color: #f0f0f0; 
+            padding: 12px; 
+            border-radius: 4px; 
+            margin: 12px 0;
+            border-left: 4px solid #34a853;
+            color: #333;
+            font-family: Consolas, Monaco, 'Courier New', monospace;
+            font-size: 0.9em;
+            overflow-x: auto;
+        }
+        pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        
+        /* Log entries */
+        .log-entry {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #ddd;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+        .log-entry:hover {
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: box-shadow 0.3s ease;
+        }
+        
+        /* Timestamps */
+        .timestamp {
+            color: #666;
+            font-size: 0.9em;
+            font-style: italic;
+            margin-bottom: 8px;
+            padding-bottom: 5px;
+            border-bottom: 1px dashed #eee;
+            display: block;
+        }
+        
+        /* Evaluation sections */
+        .evaluation-section {
+            margin-top: 15px;
+            padding: 12px;
+            background-color: rgba(52, 168, 83, 0.05);
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h2>Log: {{ log_title }}</h2>
-        <p><a href="{{ url_for('view_main_dashboard') }}">Back to Dashboard</a></p>
-        <pre>{{ log_content }}</pre>
+        <div class="header">
+            <h2>Nhật ký: {{ log_title }}</h2>
+            <a href="{{ url_for('view_main_dashboard') }}" class="back-button">← Quay lại Dashboard</a>
+        </div>
+        <div class="content-area">
+            <div class="log-content">
+                {{ log_content|safe }}
+            </div>
+        </div>
     </div>
 </body>
 </html>
 """
 
 CONFIG_TEMPLATE = """
-<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><title>Configuration</title>
+<!DOCTYPE html><html lang="vi"><head><meta charset="UTF-8"><title>Cấu hình Hệ thống</title>
 <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
-    .config-form { background-color: white; padding: 20px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
-    label { display: block; margin-bottom: 5px; font-weight: bold; }
-    input[type="text"], input[type="number"], select { width: calc(100% - 18px); padding: 8px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 3px; box-sizing: border-box; }
-    .form-group { margin-bottom: 15px; }
-    .button-container { display: flex; justify-content: space-between; margin-top: 20px; }
-    .button { padding: 10px 20px; color: white; border: none; border-radius: 3px; cursor: pointer; transition: background-color 0.3s; text-decoration: none; }
-    .save-button { background-color: #34a853; } .save-button:hover { background-color: #2e8b57; }
-    .dashboard-button { background-color: #4285f4; } .dashboard-button:hover { background-color: #3367d6; }
-</style></head><body><div class="config-form"><h2>System Configuration</h2><form method="POST">
+    body { 
+        font-family: 'Segoe UI', Arial, sans-serif; 
+        margin: 0; 
+        padding: 20px; 
+        background-color: #f8f9fa;
+        color: #333;
+    }
+    .config-form { 
+        background-color: white; 
+        padding: 30px; 
+        border-radius: 8px; 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        max-width: 700px; 
+        margin: 20px auto;
+    }
+    h2 {
+        color: #4285f4;
+        margin-top: 0;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 15px;
+        text-align: center;
+    }
+    label { 
+        display: block; 
+        margin-bottom: 8px; 
+        font-weight: bold;
+        color: #555;
+    }
+    input[type="text"], input[type="number"], select { 
+        width: calc(100% - 18px); 
+        padding: 12px; 
+        margin-bottom: 20px; 
+        border: 1px solid #ddd; 
+        border-radius: 6px; 
+        box-sizing: border-box;
+        font-size: 16px;
+        transition: all 0.3s;
+    }
+    input:focus, select:focus {
+        outline: none;
+        border-color: #4285f4;
+        box-shadow: 0 0 0 2px rgba(66,133,244,0.2);
+    }
+    .form-group { 
+        margin-bottom: 25px; 
+    }
+    .form-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .form-row input {
+        flex: 1;
+        margin-bottom: 0;
+    }
+    .form-row select {
+        width: 100px;
+        margin-bottom: 0;
+    }
+    .button-container { 
+        display: flex; 
+        justify-content: center;
+        gap: 20px;
+        margin-top: 30px; 
+    }
+    .button { 
+        padding: 12px 24px; 
+        color: white; 
+        border: none; 
+        border-radius: 30px; 
+        cursor: pointer; 
+        transition: all 0.3s; 
+        text-decoration: none;
+        font-weight: bold;
+        font-size: 16px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    .button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .save-button { 
+        background-color: #34a853; 
+    } 
+    .save-button:hover { 
+        background-color: #2e8b57; 
+    }
+    .dashboard-button { 
+        background-color: #4285f4; 
+    } 
+    .dashboard-button:hover { 
+        background-color: #3367d6; 
+    }
+    .section-header {
+        font-size: 18px;
+        color: #4285f4;
+        margin: 30px 0 15px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #eee;
+    }
+</style></head><body><div class="config-form"><h2>Cấu hình Hệ Thống</h2><form method="POST">
+    <div class="section-header">Cấu hình thu thập dữ liệu</div>
     <div class="form-group"><label for="capture_interface">Giao diện bắt gói tin:</label><input type="text" id="capture_interface" name="capture_interface" value="{{ capture_interface }}" required></div>
     <div class="form-group"><label for="capture_duration">Thời gian bắt gói tin (giây):</label><input type="number" id="capture_duration" name="capture_duration" value="{{ capture_duration }}" required></div>
     <div class="form-group"><label for="maximum_packets_capture">Số lượng gói tin tối đa:</label><input type="number" id="maximum_packets_capture" name="maximum_packets_capture" value="{{ maximum_packets_capture }}" required></div>
     <div class="form-group"><label for="output_capture_file">Đường dẫn file bắt được:</label><input type="text" id="output_capture_file" name="output_capture_file" value="{{ output_capture_file }}" required></div>
-    <div class="form-group"><label for="minimum_network_limit_val">Giới hạn băng thông tối thiểu:</label><input type="text" id="minimum_network_limit_val" name="minimum_network_limit_val" value="{{ minimum_network_limit_val }}" required> <select name="min_unit"><option value="Mbs" {% if min_unit == 'Mbs' %}selected{% endif %}>Mbs</option><option value="Kbs" {% if min_unit == 'Kbs' %}selected{% endif %}>Kbs</option></select></div>
-    <div class="form-group"><label for="maximum_network_limit_val">Giới hạn băng thông tối đa:</label><input type="text" id="maximum_network_limit_val" name="maximum_network_limit_val" value="{{ maximum_network_limit_val }}" required> <select name="max_unit"><option value="Mbs" {% if max_unit == 'Mbs' %}selected{% endif %}>Mbs</option><option value="Kbs" {% if max_unit == 'Kbs' %}selected{% endif %}>Kbs</option></select></div>
-    <div class="button-container"><button type="submit" class="button save-button">Save</button><a href="{{ url_for('view_main_dashboard') }}" class="button dashboard-button">Dashboard</a></div>
+    
+    <div class="section-header">Cấu hình giới hạn băng thông</div>
+    <div class="form-group"><label for="minimum_network_limit_val">Giới hạn băng thông tối thiểu:</label>
+        <div class="form-row">
+            <input type="text" id="minimum_network_limit_val" name="minimum_network_limit_val" value="{{ minimum_network_limit_val }}" required>
+            <select name="min_unit">
+                <option value="Mbs" {% if min_unit == 'Mbs' %}selected{% endif %}>Mbs</option>
+                <option value="Kbs" {% if min_unit == 'Kbs' %}selected{% endif %}>Kbs</option>
+            </select>
+        </div>
+    </div>
+    <div class="form-group"><label for="maximum_network_limit_val">Giới hạn băng thông tối đa:</label>
+        <div class="form-row">
+            <input type="text" id="maximum_network_limit_val" name="maximum_network_limit_val" value="{{ maximum_network_limit_val }}" required>
+            <select name="max_unit">
+                <option value="Mbs" {% if max_unit == 'Mbs' %}selected{% endif %}>Mbs</option>
+                <option value="Kbs" {% if max_unit == 'Kbs' %}selected{% endif %}>Kbs</option>
+            </select>
+        </div>
+    </div>
+    <div class="button-container">
+        <a href="{{ url_for('view_main_dashboard') }}" class="button dashboard-button">← Trở về Dashboard</a>
+        <button type="submit" class="button save-button">Lưu cấu hình</button>
+    </div>
 </form></div></body></html>
 """
 
@@ -231,19 +733,210 @@ def get_status_class(status):
         return 'attack'
     return 'normal'
 
+def render_markdown(text):
+    """Chuyển đổi văn bản có định dạng markdown thành HTML"""
+    # Đảm bảo text là chuỗi và không phải None
+    if text is None:
+        return Markup("")
+    
+    # Tiền xử lý văn bản để đảm bảo các dòng danh sách được giữ nguyên
+    # Xử lý các dòng bắt đầu bằng "- **" bằng cách thêm hai dòng trống trước mỗi dòng
+    text = re.sub(r'(?m)^- \*\*(.*?)\*\*: (.*?)$', r'\n\n- **\1**: \2', text)
+    
+    # Xử lý định dạng markdown tiêu đề trước khi chuyển đổi
+    lines = text.split('\n')
+    processed_lines = []
+    
+    in_log_entry = False
+    in_evaluation_section = False
+    
+    for i, line in enumerate(lines):
+        line_trimmed = line.strip()
+        
+        # Xử lý tiêu đề ## thành h2 và ### thành h3
+        if line_trimmed.startswith('## '):
+            # Đánh dấu đây là một timestamp mới
+            if re.match(r'^## \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$', line_trimmed):
+                # Đóng evaluation section nếu đang mở
+                if in_evaluation_section:
+                    processed_lines.append('</div>')
+                    in_evaluation_section = False
+                
+                # Đóng log-entry trước đó nếu có
+                if in_log_entry:
+                    processed_lines.append('</div>')
+                    
+                # Mở log-entry mới
+                processed_lines.append('<div class="log-entry">')
+                processed_lines.append(f'<div class="timestamp">{line_trimmed[3:]}</div>')
+                in_log_entry = True
+            elif line_trimmed == '## ĐÁNH GIÁ TỔNG HỢP':
+                # Mở evaluation section
+                if in_evaluation_section:
+                    processed_lines.append('</div>')
+                processed_lines.append('<div class="evaluation-section">')
+                processed_lines.append(f'<h2>{line_trimmed[3:]}</h2>')
+                in_evaluation_section = True
+            elif line_trimmed == '## KẾT LUẬN TỔNG THỂ' or line_trimmed.startswith('## KẾT LUẬN'):
+                # Đóng evaluation section trước khi mở một section mới
+                if in_evaluation_section:
+                    processed_lines.append('</div>')
+                processed_lines.append('<div class="evaluation-section">')
+                processed_lines.append(f'<h2>{line_trimmed[3:]}</h2>')
+                in_evaluation_section = True
+            else:
+                # Tiêu đề h2 bình thường
+                processed_lines.append(f'<h2>{line_trimmed[3:]}</h2>')
+        elif line_trimmed.startswith('### '):
+            # Xử lý tiêu đề h3
+            processed_lines.append(f'<h3>{line_trimmed[4:]}</h3>')
+        elif line_trimmed.startswith('#### '):
+            # Xử lý tiêu đề h4
+            processed_lines.append(f'<h4>{line_trimmed[5:]}</h4>')
+        elif line_trimmed.startswith('---'):
+            # Xử lý dấu phân cách
+            processed_lines.append('<hr>')
+        else:
+            # Xử lý các dòng bình thường
+            # Đặc biệt xử lý các dòng danh sách để đảm bảo chúng được tách riêng
+            if line_trimmed.startswith('- '):
+                # Thêm một thẻ đánh dấu đặc biệt cho các dòng danh sách
+                processed_lines.append('<list-item>' + line + '</list-item>')
+            else:
+                processed_lines.append(line)
+    
+    # Đóng các thẻ mở nếu cần
+    if in_evaluation_section:
+        processed_lines.append('</div>')
+    if in_log_entry:
+        processed_lines.append('</div>')
+    
+    # Ghép lại text đã xử lý
+    text = '\n'.join(processed_lines)
+    
+    # Xử lý danh sách các mục trong phần đánh giá mạng
+    # Tìm và thay thế các dòng như: "- **Các mối đe dọa đã xác định**: Không có... - **Điểm yếu tiềm ẩn**:"
+    text = re.sub(r'- \*\*(.*?)\*\*: (.*?) -', r'- **\1**: \2\n-', text)
+    
+    # Xử lý đặc biệt cho phần ĐÁNH GIÁ BẢO MẬT và các phần tương tự
+    # Tìm dạng "- **Tiêu đề**: Nội dung - **Tiêu đề khác**:"
+    security_section_pattern = r'(ĐÁNH GIÁ BẢO MẬT|HIỆU SUẤT MẠNG|KHUYẾN NGHỊ)\n+(.*?)(?=\n\n|$)'
+    
+    def format_security_section(match):
+        section_title = match.group(1)
+        content = match.group(2)
+        
+        # Tìm và định dạng lại các dòng có dạng "- **Tiêu đề**: Nội dung"
+        content = re.sub(r'- \*\*(.*?)\*\*: (.*?)(?= - \*\*|\n|$)', r'- **\1**: \2\n', content)
+        
+        return f"{section_title}\n{content}"
+    
+    text = re.sub(security_section_pattern, format_security_section, text, flags=re.DOTALL)
+    
+    # Chuyển đổi markdown thành HTML với các extensions phụ trợ
+    html = markdown.markdown(text, extensions=[
+        'tables', 
+        'nl2br',
+        'fenced_code',
+        'smarty',
+        'attr_list',
+        'def_list'
+    ])
+    
+    # Thay thế các thẻ danh sách tạm thời bằng các mục danh sách HTML thực sự
+    html = re.sub(r'<p><list-item>(.*?)</list-item></p>', r'<div class="list-item">\1</div>', html)
+    
+    # Xử lý các dòng danh sách bắt đầu bằng dấu gạch đầu dòng
+    html = html.replace('<div class="list-item">- ', '<div class="list-item">• ')
+    
+    # Đảm bảo các dòng bắt đầu bằng "- **" được định dạng đúng
+    html = re.sub(r'<p>- \*\*(.*?)\*\*: (.*?)</p>', r'<div class="list-item">• <strong>\1</strong>: \2</div>', html)
+    
+    # Xử lý các bullet points (dấu gạch đầu dòng) trong đoạn văn
+    html = re.sub(r'<p>- ', r'<p>• ', html)
+    html = re.sub(r'<br />- ', r'<br />• ', html)
+    
+    # Đảm bảo các đoạn văn bản được xuống dòng đúng
+    html = re.sub(r'<p>(.*?)\s*-\s*\*\*(.*?)\*\*:\s*(.*?)\s*-\s*', r'<p>\1<br/>• <strong>\2</strong>: \3<br/>', html)
+    
+    # Chuyển đổi các định dạng đặc biệt 
+    html = html.replace("**Tình trạng:**", "<strong>Tình trạng:</strong>")
+    html = html.replace("**Đánh giá:**", "<strong>Đánh giá:</strong>")
+    
+    # Đảm bảo các đoạn văn bản được xuống dòng đúng trong các phần đánh giá
+    html = re.sub(r'<p>(.*?)\*\*(.*?)\*\*:(.*?)<\/p>', r'<p>\1<strong>\2</strong>:\3</p>', html)
+    
+    # Xử lý các khối code được bao bởi ```
+    code_pattern = r'```(.*?)```'
+    code_blocks = re.findall(code_pattern, html, re.DOTALL)
+    for block in code_blocks:
+        formatted_block = block.strip() 
+        html = html.replace(f'```{block}```', f'<pre><code>{formatted_block}</code></pre>')
+    
+    # Xử lý backtick đơn
+    inline_code_pattern = r'`([^`]+)`'
+    html = re.sub(inline_code_pattern, r'<code>\1</code>', html)
+    
+    # Tìm tất cả các dòng dạng [timestamp]
+    timestamp_pattern = r'\[([\d\-]{10} [\d:]{8})\]'
+    html = re.sub(timestamp_pattern, r'<span class="timestamp">[\1]</span>', html)
+    
+    # Xóa khoảng trống thừa trong các thẻ pre
+    html = re.sub(r'<pre>\s*', '<pre>', html)
+    html = re.sub(r'\s*</pre>', '</pre>', html)
+    
+    return Markup(html)
+
 # ----- Các route Flask (từ web_viewer.py) -----
 @app.route('/')
 def view_main_dashboard():
     log_data = parse_log_file()
     current_time = time.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Chuyển đổi nội dung log từ markdown thành HTML
+    latest_evaluation_html = render_markdown(log_data['latest_evaluation'])
+    full_log_summary_html = render_markdown(log_data['full_log_summary'])
+    
+    # Get the current analysis timestamp
+    analysis_timestamp = get_analysis_timestamp()
+    
     return render_template_string(
         DASHBOARD_TEMPLATE,
         current_status=log_data['current_status'],
-        latest_evaluation=log_data['latest_evaluation'],
-        full_log_summary=log_data['full_log_summary'],
+        latest_evaluation=latest_evaluation_html,
+        full_log_summary=full_log_summary_html,
         timestamp=current_time,
-        status_class=get_status_class(log_data['current_status'])
+        status_class=get_status_class(log_data['current_status']),
+        analysis_timestamp=analysis_timestamp
     )
+
+@app.route('/analysis-timestamp')
+def get_timestamp():
+    """Trả về timestamp phân tích mới nhất"""
+    return get_analysis_timestamp()
+
+def get_analysis_timestamp():
+    """Đọc timestamp phân tích mới nhất từ file"""
+    try:
+        if os.path.exists(ANALYSIS_TIMESTAMP_FILE):
+            with open(ANALYSIS_TIMESTAMP_FILE, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        return str(int(time.time()))  # Fallback to current time if file doesn't exist
+    except Exception as e:
+        print(f"[ERROR] Lỗi khi đọc timestamp phân tích: {e}")
+        return str(int(time.time()))  # Fallback to current time
+
+def update_analysis_timestamp():
+    """Cập nhật timestamp phân tích mới nhất vào file"""
+    try:
+        os.makedirs(os.path.dirname(ANALYSIS_TIMESTAMP_FILE), exist_ok=True)
+        timestamp = str(int(time.time()))
+        with open(ANALYSIS_TIMESTAMP_FILE, 'w', encoding='utf-8') as f:
+            f.write(timestamp)
+        return timestamp
+    except Exception as e:
+        print(f"[ERROR] Lỗi khi cập nhật timestamp phân tích: {e}")
+        return str(int(time.time()))
 
 @app.route('/logs/<log_key>')
 def view_specific_log(log_key):
@@ -261,8 +954,11 @@ def view_specific_log(log_key):
         log_content_display += "File log không tìm thấy."
     except Exception as e:
         log_content_display += f"Lỗi khi đọc file log: {str(e)}"
+    
+    # Chuyển đổi nội dung log từ markdown thành HTML
+    log_content_html = render_markdown(log_content_display)
 
-    return render_template_string(LOG_VIEW_TEMPLATE, log_title=log_filename, log_content=log_content_display)
+    return render_template_string(LOG_VIEW_TEMPLATE, log_title=log_filename, log_content=log_content_html)
 
 @app.route('/configuration/', methods=['GET', 'POST'])
 def configuration():

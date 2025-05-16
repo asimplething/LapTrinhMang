@@ -19,16 +19,16 @@ def extract_status_review(text: str) -> Tuple[str, str]:
     status = None
     review = None
 
-    # Tìm kiếm pattern cho Tình trạng
-    status_pattern = r'Tình trạng:\s*(.+?)\s*\n'
+    # Tìm kiếm pattern cho Tình trạng (hỗ trợ cả markdown và không markdown)
+    status_pattern = r'\*?\*?Tình trạng:\*?\*?\s*(.+?)\s*\n'
     status_match = re.search(status_pattern, text, re.IGNORECASE)
     if status_match:
         status = status_match.group(1).strip()
         if status not in STATUS_WEIGHTS:
             status = "null"
 
-    # Tìm kiếm pattern cho Đánh giá
-    review_pattern = r'Đánh giá:\s*(.+?)(?=\n\S+:|$|\Z)'
+    # Tìm kiếm pattern cho Đánh giá (hỗ trợ cả markdown và không markdown)
+    review_pattern = r'\*?\*?Đánh giá:\*?\*?\s*(.+?)(?=\n\S+:|$|\Z)'
     review_match = re.search(review_pattern, text, re.IGNORECASE | re.DOTALL)
     if review_match:
         review = review_match.group(1).strip()
