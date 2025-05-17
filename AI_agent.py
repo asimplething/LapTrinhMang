@@ -50,7 +50,7 @@ if not GEMINI_API_KEY:
     raise ValueError("API_KEY not found in environment variables.")
 
 # Custom input function to return one chunk at a time
-async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_list):
+async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_llama, data_chunks_list):
     current_chunk_index = 0
     results = []
 
@@ -64,19 +64,19 @@ async def run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data
         message = f"Phân tích dữ liệu mạng phần {current_chunk_index+1}/{len(data_chunks_list)}:" \
                   f"\n - Chi tiết: \n{json.dumps(chunk, indent=4, ensure_ascii=False)}"
 
-        gemini_result, deepseek_result, qwen_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, message)
+        gemini_result, deepseek_result, llama_result = await run_models_parallel(assistant_gemini, assistant_deepseek, assistant_llama, message)
 
-        results = write_log_agents(gemini_result, deepseek_result, qwen_result, current_chunk_index, data_chunks_list, results)
+        results = write_log_agents(gemini_result, deepseek_result, llama_result, current_chunk_index, data_chunks_list, results)
         current_chunk_index += 1
     return results
 
 # Chạy song song các model phân tích gói tin
-async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_qwen, chunk):
+async def run_models_parallel(assistant_gemini, assistant_deepseek, assistant_llama, chunk):
     gemini_task = assistant_gemini.run(task=chunk)
     deepseek_task = assistant_deepseek.run(task=chunk)
-    qwen_task = assistant_qwen.run(task=chunk)
+    llama_task = assistant_llama.run(task=chunk)
 
-    result = await asyncio.gather(gemini_task, deepseek_task, qwen_task)
+    result = await asyncio.gather(gemini_task, deepseek_task, llama_task)
     return result
 
 async def run_AIagent_capture_packets():
@@ -85,7 +85,7 @@ async def run_AIagent_capture_packets():
  #Sau khi có results từ asyncio.run(), thêm phần phân tích:
 def analyze_final_results(results):
     print("Đang phân tích kết quả cuối cùng...")
-    # Chia results thành các nhóm 3 (gemini, deepseek, qwen)
+    # Chia results thành các nhóm 3 (gemini, deepseek, llama)
     grouped_results = [results[i:i+3] for i in range(0, len(results), 3)]
     final_evaluations = []
     evaluations_data = []
@@ -159,8 +159,8 @@ capture_agent = AssistantAgent(
     name="CaptureAgent",
     model_client=gemini_model,
     #system_message=system_message_network_capture_template,
-    tools=[FunctionTool(network_capture_tool, description="Tool to capture network packets", strict=True),
-               FunctionTool(pcap_extract_tool, description="Tool to extract information from pcap file", strict=True)],
+    tools=[FunctionTool(network_capture_tool, description="Tool to capture network packets", strict=False),
+               FunctionTool(pcap_extract_tool, description="Tool to extract information from pcap file", strict=False)],
 )
 
 # Thiết lập agent phân tích
@@ -176,7 +176,7 @@ assistant_deepseek = AssistantAgent(
     system_message=analyze_template(maximum_network_limit, minimum_network_limit),
 )
 
-assistant_qwen = AssistantAgent(
+assistant_llama = AssistantAgent(
     name="Assistant",
     model_client=llama_model,
     system_message=analyze_template(maximum_network_limit, minimum_network_limit),
@@ -292,7 +292,7 @@ if not isinstance(data_chunks_parsed, list):
     print("Đang thoát AI_agent.py.")
     sys.exit(1)
 
-analysis_results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_parsed))
+analysis_results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_llama, data_chunks_parsed))
 
 final_evaluations, evaluations_data = analyze_final_results(analysis_results)
 

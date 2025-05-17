@@ -1,6 +1,6 @@
 flask>=2.0.1
 markdown>=3.4.1
-markupsafe>=2.0.1
+markupsafe>=2.0.1 
 scapy>=2.5.0
 autogen-agentchat>=0.2.0
 autogen-core>=0.2.0

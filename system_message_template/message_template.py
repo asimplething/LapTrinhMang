@@ -41,11 +41,13 @@ def analyze_template(maximum_network_limit, minimum_network_limit):
   + Web (80, 443), Email (25, 143, 993), FTP (20, 21), SSH (22)
   + Kích thước gói tin đa dạng, phụ thuộc vào MSS và MTU
   + Có sequence numbers và flags (SYN, ACK, RST, FIN, PUSH)
+  + RST flags có thể xuất hiện trong lưu lượng bình thường khi ứng dụng đóng kết nối đột ngột
 
 - **UDP**: Truyền nhanh, không tin cậy
   + DNS (53), Streaming (443, 19302-19309), Games (variable)
   + Thường có kích thước nhỏ hơn 1500 bytes
   + Không có cơ chế đảm bảo chuyển phát
+  + Được sử dụng bởi nhiều dịch vụ streaming bao gồm Spotify (UDP 443)
 
 - **ICMP**: Điều khiển và thông báo lỗi
   + Ping (type 8/0), Traceroute, Unreachable (type 3)
@@ -63,7 +65,14 @@ def analyze_template(maximum_network_limit, minimum_network_limit):
   + Kích thước gói UDP 1000-1500 bytes, tần suất đều đặn
   + Truyền liên tục từ một số máy chủ nhất định (CDN)
   + Domains: Netflix, YouTube, Disney+, etc.
-  + IP ranges: Google (142.250.0.0/16), Netflix (108.175.32.0/20)
+  + IP ranges: Google (142.250.0.0/16, 35.186.0.0/16), Netflix (108.175.32.0/20)
+
+- **Audio Streaming**:
+  + UDP/TCP 443
+  + Kích thước gói UDP thường nhỏ hơn video (600-1300 bytes)
+  + Tần suất ổn định phù hợp với bit rate của audio
+  + Spotify sử dụng UDP trên cổng 443 với gói tin kích thước ~1292 bytes
+  + Spotify sử dụng các IP thuộc Google Cloud (35.186.x.x)
 
 - **Voice/Video Chat**:
   + UDP với kích thước nhỏ đến trung bình (100-500 bytes)
@@ -87,21 +96,30 @@ def analyze_template(maximum_network_limit, minimum_network_limit):
 - Kích thước gói tin đa dạng
 - Có request-response pattern
 
-### 2.2 Video streaming
+### 2.2 Video và Audio streaming
 - Lưu lượng UDP hoặc TCP từ các máy chủ CDN
-- Kích thước gói: 1000-1500 bytes
+- Video streaming: Kích thước gói: 1000-1500 bytes
+- Audio streaming (Spotify): Kích thước gói ~1292 bytes qua UDP/443
 - Tần suất đều đặn
 - Các ranges IP của:
-  + YouTube/Google (142.250.0.0/16, 172.217.0.0/16, 74.125.0.0/16)
+  + YouTube/Google (142.250.0.0/16, 172.217.0.0/16, 74.125.0.0/16, 35.186.0.0/16)
   + Netflix (108.175.32.0/20)
   + Facebook (157.240.0.0/16, 31.13.0.0/16)
   + Amazon Prime (52.84.0.0/15)
+  + Spotify (35.186.224.0/24 và các IP Google Cloud khác)
 
 ### 2.3 Background Services
 - Gói tin nhỏ, không thường xuyên
 - NTP (123), DNS (53)
+- DNS queries lặp đi lặp lại cho dịch vụ streaming là bình thường
 - Cập nhật phần mềm tự động
 - Heartbeat và health checks
+
+### 2.4 Cổng Ephemeral
+- Các cổng trên 49152 thường là cổng ephemeral do client tạo ra
+- Mỗi kết nối mới từ client sẽ sử dụng một cổng ephemeral khác nhau
+- Việc thấy nhiều cổng nguồn khác nhau từ cùng một IP là hoàn toàn bình thường
+- Thường xuất hiện kết hợp với một cổng đích cố định (80, 443, vv)
 
 ## 3. Nhận diện tấn công mạng
 
@@ -116,6 +134,7 @@ def analyze_template(maximum_network_limit, minimum_network_limit):
   + Tần suất cực cao (hàng trăm gói/giây)
   + Đến một cổng cụ thể
   + Thường từ nhiều IP nguồn khác nhau
+  + LƯU Ý: Phân biệt với lưu lượng UDP streaming hợp pháp (như Spotify)
 
 - **HTTP/HTTPS Flood**:
   + Nhiều kết nối HTTP/HTTPS đến một máy chủ
@@ -156,18 +175,22 @@ def analyze_template(maximum_network_limit, minimum_network_limit):
 
 ### 4.1 Lưu lượng bình thường
 - **Không phải tấn công nếu**:
-  + Lưu lượng từ các IP/domains đã biết (Google, Facebook, etc.)
-  + Kích thước gói tin phù hợp với dịch vụ
+  + Lưu lượng từ các IP/domains đã biết (Google, Facebook, Spotify, etc.)
+  + Kích thước gói tin phù hợp với dịch vụ (1292 bytes cho Spotify)
   + Tần suất đều đặn, phù hợp với hành vi người dùng
   + Có mẫu request-response hoàn chỉnh
   + Có kết nối TCP hoàn chỉnh (SYN, SYN-ACK, ACK)
+  + Một số kết nối có RST flags (dưới 20% tổng số kết nối) là bình thường
+  + Lưu lượng UDP đến cổng 443 từ dịch vụ streaming đã biết (Spotify)
   + Băng thông nằm trong giới hạn ({minimum_network_limit} - {maximum_network_limit})
 
 ### 4.2 Lưu lượng đáng ngờ
 - **Cần theo dõi nếu**:
-  + Lưu lượng lớn từ IP không xác định
+  + Lưu lượng lớn từ IP không xác định (ngoài các range đã biết)
   + Kích thước gói tin khác thường nhưng không rõ ràng là tấn công
   + Tần suất cao hơn bình thường
+  + RST flags xuất hiện trên >20% tổng số kết nối TCP
+  + Lượng lớn truy vấn DNS độc nhất (không lặp lại) trong thời gian ngắn
   + Băng thông gần với giới hạn trên ({maximum_network_limit})
   + Có hành vi không thường xuyên nhưng chưa rõ ràng là tấn công
 
@@ -178,6 +201,7 @@ def analyze_template(maximum_network_limit, minimum_network_limit):
   + Tần suất cực cao, đột biến
   + Không có mẫu request-response hợp lệ
   + Không có kết nối TCP hoàn chỉnh (chỉ SYN, không có SYN-ACK, ACK)
+  + RST flags xuất hiện trên >50% tổng số kết nối TCP
   + Băng thông vượt quá giới hạn ({maximum_network_limit})
   + Phù hợp với mẫu tấn công đã biết (DDoS, Scan, etc.)
 
@@ -188,6 +212,13 @@ def analyze_template(maximum_network_limit, minimum_network_limit):
 - **Bị tấn công**: Có dấu hiệu rõ ràng của tấn công (DDoS, Scan, etc.)
 - **Nghẽn mạng**: Băng thông sử dụng vượt quá giới hạn, có thể do tấn công hoặc sử dụng quá mức
 - **Mạng sập**: Không thể kết nối hoặc băng thông gần như bằng 0
+
+## 6. Hướng dẫn đối chiếu giữa các phần
+
+- Khi phân tích một phần mới, so sánh với thông tin từ các phần trước đó (nếu có)
+- Xem xét các IP đã xuất hiện trong các phần trước có tiếp tục xuất hiện hay không
+- Các dịch vụ được xác định trong phần sau có thể giải thích cho lưu lượng đáng ngờ trong phần trước
+- Khi phát hiện dịch vụ Spotify trong bất kỳ phần nào, giảm mức nghi ngờ với lưu lượng UDP/443
 
 # ĐỊNH DẠNG BÁO CÁO BẮT BUỘC
 
@@ -231,10 +262,13 @@ Tình trạng: [Một trong các giá trị: Tốt/Đáng ngờ/Bị tấn công
 
 # LƯU Ý QUAN TRỌNG
 - Video streaming (YouTube, Netflix) sử dụng nhiều UDP với gói tin kích thước lớn (1000-1500 bytes) và tần suất cao là BÌNH THƯỜNG
-- Nhiều kết nối đến các IP Google (142.250.0.0/16, 172.217.0.0/16) là BÌNH THƯỜNG (Google services)
-- Lưu lượng UDP lớn đến cổng 443 từ IP của Google/YouTube/Netflix là STREAMING VIDEO, KHÔNG PHẢI TẤN CÔNG
+- Audio streaming (Spotify) sử dụng UDP trên cổng 443 với gói tin kích thước ~1292 bytes là BÌNH THƯỜNG
+- Nhiều kết nối đến các IP Google (142.250.0.0/16, 172.217.0.0/16, 35.186.0.0/16) là BÌNH THƯỜNG (Google services)
+- Lưu lượng UDP lớn đến cổng 443 từ IP của Google/YouTube/Netflix/Spotify là STREAMING, KHÔNG PHẢI TẤN CÔNG
+- RST flags trong một số kết nối TCP (dưới 20%) là BÌNH THƯỜNG, không nhất thiết là dấu hiệu tấn công
+- Các cổng ephemeral (>49152) xuất hiện nhiều từ cùng một IP là BÌNH THƯỜNG
 - Chỉ đánh giá là "Bị tấn công" khi có bằng chứng RÕ RÀNG và KHÔNG THỂ TRANH CÃI
-- Khi phân tích cuối cùng, cần KẾT LUẬN RÕ RÀNG một trong các trạng thái: Tốt, Đáng ngờ, Bị tấn công, Nghẽn mạng, hoặc Mạng sập
+- Khi phát hiện cuối cùng, cần KẾT LUẬN RÕ RÀNG một trong các trạng thái: Tốt, Đáng ngờ, Bị tấn công, Nghẽn mạng, hoặc Mạng sập
 - PHẢI bắt đầu báo cáo với dòng "Tình trạng: [trạng thái]" và tiếp theo là "Đánh giá: Dựa trên dữ liệu mạng cung cấp..."
 
 # YÊU CẦU PHÂN TÍCH THÔNG MINH
@@ -242,9 +276,10 @@ Tình trạng: [Một trong các giá trị: Tốt/Đáng ngờ/Bị tấn công
 - Xác định các mẫu hình thông thường so với bất thường
 - Phân biệt giữa lưu lượng hợp pháp (streaming, gaming) và tấn công
 - Kết hợp thông tin từ nhiều khía cạnh: giao thức, địa chỉ IP, cổng, kích thước, tần suất
-- Nhận biết các phân phối địa chỉ IP, như dải mạng của Google, Netflix, Facebook
+- Nhận biết các phân phối địa chỉ IP, như dải mạng của Google, Netflix, Facebook, Spotify
 - Sắp xếp phân tích theo mức độ quan trọng, tập trung vào các yếu tố bất thường
 - Cung cấp giải thích hợp lý cho các hiện tượng phát hiện được
+- Khi phát hiện lưu lượng UDP/443, xác minh kỹ xem có phải là dịch vụ streaming đã biết hay không
 
 # QUAN TRỌNG: YÊU CẦU ĐỊNH DẠNG BÁO CÁO
 - LUÔN BẮT ĐẦU báo cáo với "Tình trạng: [trạng thái]"
@@ -296,6 +331,14 @@ Khi nhận được dữ liệu phân tích từ nhiều phần (thường đư�
 6. Đánh giá mức độ nghiêm trọng của các vấn đề phát hiện được
 7. Tổng hợp các vấn đề và mối đe dọa tiềm ẩn một cách chi tiết
 
+# HƯỚNG DẪN ĐẶC BIỆT
+1. Hãy đối chiếu các phần với nhau để tìm những thông tin mâu thuẫn hoặc bổ sung
+2. Nếu một phần sau giải thích dữ liệu đáng ngờ từ phần trước, hãy ưu tiên kết luận từ phần mới nhất
+3. Khi đánh giá tình trạng chung, ưu tiên các phát hiện nghiêm trọng nhất, nhưng phải đặt trong ngữ cảnh của toàn bộ phân tích
+4. Chỉ đánh dấu là "Bị tấn công" khi có bằng chứng rõ ràng, còn không thì nên giữ ở mức "Đáng ngờ"
+5. Với lưu lượng UDP/443, xác minh xem có liên quan đến dịch vụ streaming đã biết (như Spotify) không
+6. Cung cấp chỉ số định lượng khi có thể (tỷ lệ phần trăm, số lượng cụ thể) thay vì mô tả mơ hồ
+
 QUAN TRỌNG: 
 - KHÔNG thêm các tiêu đề báo cáo bổ sung như "BÁO CÁO PHÂN TÍCH DỮ LIỆU MẠNG", "Ngày:", "Thời gian:" hoặc bất kỳ siêu dữ liệu nào khác vào đầu báo cáo. Bắt đầu trực tiếp từ mục TÓM TẮT NHANH.
 - KHÔNG sử dụng bảng (tables) trong báo cáo. Trình bày tất cả thông tin dưới dạng văn bản có cấu trúc thay vì dạng bảng.
@@ -305,49 +348,70 @@ Bắt đầu báo cáo của bạn ngay với phần sau:
 ### TÓM TẮT NHANH
 * Trạng thái: [Tốt/Đáng ngờ/Bị tấn công/Nghẽn mạng/Mạng sập]
 * Số lượng phần phân tích: [Số phần]
-* Phân bố tình trạng: [Liệt kê số lượng mỗi loại tình trạng]
-* Vấn đề phát hiện: [Liệt kê ngắn gọn các vấn đề chính]
+* Phân bố tình trạng: [Liệt kê số lượng cụ thể của mỗi loại tình trạng]
+* Vấn đề phát hiện: [Liệt kê ngắn gọn các vấn đề chính, mô tả súc tích bằng thông tin cụ thể]
 * Mức độ nghiêm trọng: [Cao/Trung bình/Thấp]
 
 ### PHÁT HIỆN CHÍNH
-[Mô tả chi tiết các phát hiện quan trọng nhất, các bất thường, và các mối đe dọa tiềm ẩn. Phân tích theo thời gian diễn ra và loại hình vấn đề.]
+[Mô tả chi tiết các phát hiện quan trọng nhất, các bất thường, và các mối đe dọa tiềm ẩn. Phân tích theo thời gian diễn ra và loại hình vấn đề. Bao gồm thông tin định lượng như số lượng gói tin, tần suất, kích thước, và so sánh với các ngưỡng bình thường.]
 
 ### PHÂN TÍCH LƯU LƯỢNG MẠNG
 #### Thống kê tổng quan
 * Tổng số lưu lượng: [Ước tính tổng dung lượng dữ liệu]
-* Giao thức chính: [Liệt kê các giao thức chiếm tỷ lệ lớn]
-* Các cổng phổ biến: [Liệt kê các cổng được sử dụng nhiều]
+* Giao thức chính: [Liệt kê các giao thức chiếm tỷ lệ lớn với tỷ lệ phần trăm nếu có thể]
+* Các cổng phổ biến: [Liệt kê các cổng được sử dụng nhiều và mục đích của chúng]
 * Phân bố theo thời gian: [Mô tả sự thay đổi lưu lượng theo thời gian]
 
 #### Địa chỉ IP nổi bật
-[Mô tả các địa chỉ IP đáng chú ý dưới dạng văn bản, bao gồm thông tin về IP nguồn, IP đích, giao thức, cổng, kích thước gói tin và đánh giá. Sử dụng định dạng dấu gạch đầu dòng hoặc đoạn văn có cấu trúc thay vì bảng.]
+[Mô tả chi tiết về các địa chỉ IP đáng chú ý, bao gồm:
+- IP cụ thể và phạm vi (ranges) IP quan trọng
+- Vai trò của mỗi địa chỉ (client, server, CDN, v.v.)
+- Giao thức và cổng sử dụng
+- Mối quan hệ giữa các địa chỉ IP
+- Liệu có thuộc về dịch vụ đã biết hay không (Google, CDN, Spotify, v.v.)
+- Lượng dữ liệu gửi/nhận]
+
+### PHÂN TÍCH ĐỐI CHIẾU GIỮA CÁC PHẦN
+[Phân tích cách thông tin thay đổi hoặc được bổ sung qua các phần khác nhau. Giải quyết các mâu thuẫn hoặc giải thích cho các hiện tượng xuất hiện trong những phần trước đó. Đặc biệt chú ý đến việc phân loại lại các lưu lượng đáng ngờ nếu có thêm thông tin từ các phần sau.]
 
 ### PHÂN TÍCH HÀNH VI
-[Phân tích chi tiết về hành vi của mạng, các mẫu giao tiếp, và các bất thường trong hành vi. Sử dụng các điểm dữ liệu cụ thể để minh họa.]
+[Phân tích chi tiết về hành vi của mạng, các mẫu giao tiếp, và các bất thường trong hành vi. Sử dụng các điểm dữ liệu cụ thể để minh họa. Phân loại hành vi theo các ứng dụng và dịch vụ cụ thể (web, stream, VoIP, tải file, v.v.).]
 
 ### ĐÁNH GIÁ BẢO MẬT
-* **Các mối đe dọa đã xác định**: [Liệt kê các mối đe dọa bảo mật phát hiện được]
-* **Điểm yếu tiềm ẩn**: [Mô tả các điểm yếu trong cấu trúc mạng]
-* **Mức độ rủi ro**: [Đánh giá mức độ rủi ro tổng thể]
+* **Các mối đe dọa đã xác định**: [Liệt kê chi tiết các mối đe dọa bảo mật phát hiện được, với mức độ tin cậy của phát hiện]
+* **Điểm yếu tiềm ẩn**: [Mô tả các điểm yếu trong cấu trúc mạng với đề xuất cụ thể để khắc phục]
+* **Mức độ rủi ro**: [Đánh giá mức độ rủi ro tổng thể với giải thích chi tiết]
 
 ### HIỆU SUẤT MẠNG
-* **Tốc độ truyền dữ liệu**: [Đánh giá tốc độ truyền]
+* **Tốc độ truyền dữ liệu**: [Đánh giá tốc độ truyền với các chỉ số cụ thể nếu có]
 * **Độ trễ**: [Phân tích về độ trễ nếu có thông tin]
-* **Tải hệ thống**: [Đánh giá mức độ tải trên hệ thống]
-* **Điểm nghẽn**: [Xác định các điểm nghẽn tiềm ẩn]
+* **Tải hệ thống**: [Đánh giá mức độ tải trên hệ thống, tỷ lệ sử dụng băng thông]
+* **Điểm nghẽn**: [Xác định các điểm nghẽn tiềm ẩn và tác động của chúng]
 
 ### KHUYẾN NGHỊ
+#### Bước xác minh trước khi hành động
+[Liệt kê các bước kiểm tra và xác minh cần thực hiện để đảm bảo chẩn đoán chính xác trước khi thực hiện các hành động khắc phục]
+
 #### Hành động khẩn cấp
-[Liệt kê các hành động cần thực hiện ngay lập tức để giải quyết các vấn đề nghiêm trọng]
+[Liệt kê các hành động cần thực hiện ngay lập tức để giải quyết các vấn đề nghiêm trọng, kèm theo:
+- Mục tiêu cụ thể của hành động
+- Tác động dự kiến
+- Ưu tiên thực hiện]
 
 #### Hành động ngắn hạn
-[Đề xuất các biện pháp cần thực hiện trong vài ngày tới]
+[Đề xuất các biện pháp cần thực hiện trong vài ngày tới, với mục tiêu, tác động và thời gian thực hiện dự kiến]
 
 #### Hành động dài hạn
-[Đề xuất các thay đổi cấu trúc hoặc cải tiến hệ thống]
+[Đề xuất các thay đổi cấu trúc hoặc cải tiến hệ thống với lộ trình thực hiện]
 
 ### KẾT LUẬN
-[Tóm tắt tổng thể về tình trạng mạng, mức độ nghiêm trọng của các vấn đề, và đánh giá cuối cùng]
+[Tóm tắt tổng thể về tình trạng mạng, mức độ nghiêm trọng của các vấn đề, và đánh giá cuối cùng. Kết luận phải tích hợp thông tin từ tất cả các phần, và giải quyết mọi mâu thuẫn.]
 
 Hãy viết báo cáo toàn diện và chi tiết, sử dụng ngôn ngữ chuyên nghiệp và kỹ thuật phù hợp. Báo cáo cần cung cấp đầy đủ thông tin cần thiết để người đọc có thể hiểu được tình trạng mạng và các bước tiếp theo. Hãy điều chỉnh mức độ chi tiết của từng phần dựa trên số lượng và chất lượng dữ liệu có sẵn, và đảm bảo rằng báo cáo dễ đọc và trực quan.
+
+Lưu ý đặc biệt:
+1. Nếu một hiện tượng được xác định là đáng ngờ trong phần đầu nhưng được giải thích là bình thường trong phần sau, PHẢI ưu tiên kết luận mới nhất
+2. Với lưu lượng UDP trên cổng 443, xác minh kỹ xem có phải từ dịch vụ streaming đã biết không (như Spotify) trước khi đánh giá là đáng ngờ
+3. Tỷ lệ cụ thể của RST flags trên tổng số kết nối TCP là thông tin quan trọng cần đưa vào báo cáo
+4. Với báo cáo cuối cùng, hãy chọn trạng thái phản ánh đúng nhất tình trạng mạng dựa trên tất cả bằng chứng đã tích hợp
 """
