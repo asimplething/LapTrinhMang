@@ -12,7 +12,7 @@ STATUS_WEIGHTS = {
     "null": 0
 }
 
-MODEL_PRIORITY = ["gemini", "deepseek", "qwen"]
+MODEL_PRIORITY = ["gemini", "deepseek", "llama"]
 
 def extract_status_review(text: str) -> Tuple[str, str]:
     #Trích xuất trạng thái và đánh giá từ nội dung text
@@ -39,14 +39,14 @@ def evaluate_results(results: List[str]) -> Dict:
     ###
     #Đánh giá và tổng hợp kết quả từ nhiều model
     #Args:
-    #    results: Danh sách các kết quả từ model (theo thứ tự gemini, deepseek, qwen)
+    #    results: Danh sách các kết quả từ model (theo thứ tự gemini, deepseek, llama)
     #Returns:
     #    Dict: Kết quả tổng hợp gồm final_status, final_review và details
     ###
 
     status_count = defaultdict(int)
     status_details = []
-    model_names = ["gemini", "deepseek", "qwen"]
+    model_names = ["gemini", "deepseek", "llama"]
 
     for idx, content in enumerate(results):
         model_name = model_names[idx % len(model_names)]

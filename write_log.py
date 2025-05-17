@@ -20,7 +20,7 @@ def write_log_capture(pcap_file):
                   f"Số lượng gói tin đã bắt: {packet_count}\n")
         f.write(string + "\n")
 
-def write_log_agents(gemini, deepseek, qwen, current_chunk_index, chunks, results):
+def write_log_agents(gemini, deepseek, llama, current_chunk_index, chunks, results):
     log_dir = "log"
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
@@ -51,7 +51,7 @@ def write_log_agents(gemini, deepseek, qwen, current_chunk_index, chunks, result
     with open(llama_log_file, "a", encoding="utf-8") as f:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(chunks)}\n")
-        for response in qwen.messages:
+        for response in llama.messages:
             if response.source == "Assistant":
                 cleaned_content = "\n".join([line for line in response.content.splitlines() if line.strip() != ""])
                 f.write(f"Assistant: {cleaned_content}\n")

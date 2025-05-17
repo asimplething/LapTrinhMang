@@ -1,6 +1,6 @@
 # Hệ Thống Phân Tích Mạng Thông Minh
 
-Hệ thống phân tích mạng sử dụng AI để bắt gói tin, phân tích lưu lượng mạng và đưa ra đánh giá về tình trạng mạng. Sử dụng nhiều AI model (Gemini, DeepSeek, Qwen) để phân tích và đối chiếu kết quả.
+Hệ thống phân tích mạng sử dụng AI để bắt gói tin, phân tích lưu lượng mạng và đưa ra đánh giá về tình trạng mạng. Sử dụng nhiều AI model (Gemini, DeepSeek, Llama) để phân tích và đối chiếu kết quả.
 
 ## Yêu Cầu Hệ Thống
 
