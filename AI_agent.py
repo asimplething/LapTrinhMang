@@ -213,85 +213,83 @@ while True:
                             if isinstance(parsed_content, dict) and parsed_content.get("success") is True:
                                  capture_successful = True
                             else:
-                                print("network_capture_tool output was parsable JSON but did not indicate success.")
+                                print("Đầu ra của network_capture_tool là JSON có thể phân tích nhưng không thành công.")
                         except json.JSONDecodeError:
-                            print("network_capture_tool output was a string but not valid JSON.")
+                            print("Đầu ra của network_capture_tool là một chuỗi nhưng không phải JSON hợp lệ.")
                     else:
-                        print(f"network_capture_tool output was not in expected format (dict or JSON string). Type: {type(tool_result.content)}")
+                        print(f"Đầu ra của network_capture_tool không ở định dạng mong đợi (dict hoặc chuỗi JSON). Kiểu: {type(tool_result.content)}")
 
                     if capture_successful:
                         is_network_captured = True
-                        print("Network capture reported success.")
+                        print("Bắt gói tin mạng thành công.")
                     else:
-                        print("Network capture did NOT report success.")
-                        is_network_captured = False # Explicitly set to false if not successful
+                        print("Bắt gói tin mạng KHÔNG thành công.")
+                        is_network_captured = False # Đặt rõ ràng thành false nếu không thành công
 
                 if tool_result.name == 'pcap_extract_tool' and not tool_result.is_error and is_network_captured is True:
                     print(f"pcap_extract_tool output: {tool_result.content}")
                     data_chunks_from_tool = tool_result.content
 
     if data_chunks_from_tool is None or is_network_captured is False:
-        print(f"AI không bắt được gói tin thành công hoặc không chiết xuất được thông tin. Capture success status: {is_network_captured}, Extracted data: {data_chunks_from_tool}")
-        # C++ wrapper handles retry and sleep, so Python script should exit to signal failure for this attempt.
-        print("Exiting AI_agent.py to allow the main program to retry.")
+        print(f"AI không bắt được gói tin thành công hoặc không chiết xuất được thông tin. Trạng thái bắt gói tin: {is_network_captured}, Dữ liệu đã chiết xuất: {data_chunks_from_tool}")
+        print("Thoát AI_agent.py để cho phép chương trình chính thử lại.")
         sys.exit(1)
     else:
-        print("Successfully captured and extracted data. Proceeding to analysis.")
+        print("Bắt gói tin và chiết xuất dữ liệu thành công. Đang tiến hành phân tích.")
         break
 
-# Initialize data_chunks_parsed to a default value (e.g., None or an empty list)
-# to ensure it's defined in case of early exit.
+
 data_chunks_parsed = None
 
-if data_chunks_from_tool is None: # This check is somewhat redundant given the loop exit condition but kept for safety
-    print(f"Error: data_chunks_from_tool is None after capture loop. Cannot proceed.")
-    print("This implies an issue with the capture/extraction logic or tool responses.")
-    print("Exiting AI_agent.py.")
+if data_chunks_from_tool is None: 
+    print(f"Lỗi: data_chunks_from_tool là None sau vòng lặp bắt gói tin. Không thể tiếp tục.")
+    print("Có vấn đề với logic bắt/chiết xuất hoặc phản hồi công cụ.")
+    print("Đang thoát AI_agent.py.")
     sys.exit(1)
 
 elif isinstance(data_chunks_from_tool, str):
     if data_chunks_from_tool.strip().lower() == "none":
-        print(f"Error: data_chunks_from_tool is the literal string 'None'. Cannot parse JSON.")
-        print("This indicates pcap_extract_tool likely failed or returned None, which was then stringified by the framework.")
-        print("Check logs for pcap_extract_tool and network_capture_tool for more details.")
-        print("Exiting AI_agent.py.")
+        print(f"Lỗi: data_chunks_from_tool là chuỗi 'None'. Không thể phân tích JSON.")
+        print("Điều này chỉ ra rằng pcap_extract_tool có thể đã thất bại hoặc trả về None, và sau đó được chuyển thành chuỗi bởi framework.")
+        print("Kiểm tra nhật ký của pcap_extract_tool và network_capture_tool để biết thêm chi tiết.")
+        print("Đang thoát AI_agent.py.")
         sys.exit(1)
     elif not data_chunks_from_tool.strip():
-        print(f"Error: data_chunks_from_tool is an empty or whitespace-only string: '{data_chunks_from_tool}'. Cannot parse JSON.")
-        print("pcap_extract_tool might have returned an empty string unexpectedly.")
-        print("Exiting AI_agent.py.")
+        print(f"Lỗi: data_chunks_from_tool là chuỗi trống hoặc chỉ có khoảng trắng: '{data_chunks_from_tool}'. Không thể phân tích JSON.")
+        print("pcap_extract_tool có thể đã trả về một chuỗi trống không mong đợi.")
+        print("Đang thoát AI_agent.py.")
         sys.exit(1)
 
     try:
         data_chunks_parsed = json.loads(data_chunks_from_tool)
-        print(f"Successfully parsed JSON string from pcap_extract_tool.")
+        print(f"Phân tích chuỗi JSON từ pcap_extract_tool thành công.")
     except json.JSONDecodeError as e:
-        print(f"Error decoding JSON from data_chunks_from_tool string: {e}")
-        print(f"Content of data_chunks_from_tool string that failed to parse: >>>{data_chunks_from_tool}<<<")
-        print("This could be due to malformed JSON output from pcap_extract_tool.")
-        print("Exiting AI_agent.py.")
+        print(f"Lỗi giải mã JSON từ chuỗi data_chunks_from_tool: {e}")
+        print(f"Nội dung của chuỗi data_chunks_from_tool không thể phân tích: >>>{data_chunks_from_tool}<<<")
+        print("Điều này có thể do đầu ra JSON không đúng định dạng từ pcap_extract_tool.")
+        print("Đang thoát AI_agent.py.")
         sys.exit(1)
 elif isinstance(data_chunks_from_tool, (list, dict)):
-    print("data_chunks_from_tool is already a Python object (list/dict). Assuming it's the parsed data.")
+    print("data_chunks_from_tool đã là một đối tượng Python (list/dict). Giả định đây là dữ liệu đã được phân tích.")
     data_chunks_parsed = data_chunks_from_tool
 else:
-    print(f"Error: data_chunks_from_tool is of an unexpected type: {type(data_chunks_from_tool)}. Content: {data_chunks_from_tool}")
-    print("Expected a JSON string, or a list/dict if already parsed by the framework.")
-    print("Exiting AI_agent.py.")
+    print(f"Lỗi: data_chunks_from_tool có kiểu dữ liệu không mong đợi: {type(data_chunks_from_tool)}. Nội dung: {data_chunks_from_tool}")
+    print("Mong đợi một chuỗi JSON, hoặc list/dict nếu đã được phân tích bởi framework.")
+    print("Đang thoát AI_agent.py.")
     sys.exit(1)
 
 if data_chunks_parsed is None:
-    print("Critical Error: data_chunks_parsed is None after all processing attempts.")
-    print(f"Original data_chunks_from_tool content was: >>>{data_chunks_from_tool}<<<")
-    print("This points to a flaw in the data handling or tool output interpretation logic.")
-    print("Exiting AI_agent.py.")
+    print("Lỗi Nghiêm Trọng: data_chunks_parsed là None sau tất cả các lần xử lý.")
+    print(f"Nội dung gốc của data_chunks_from_tool là: >>>{data_chunks_from_tool}<<<")
+    print("Điều này chỉ ra một lỗi trong logic xử lý dữ liệu hoặc diễn giải đầu ra công cụ.")
+    print("Đang thoát AI_agent.py.")
     sys.exit(1)
 
 if not isinstance(data_chunks_parsed, list):
-    print(f"Critical Error: data_chunks_parsed is not a list as expected by run_AIagent. Type: {type(data_chunks_parsed)}")
-    print(f"Content: {data_chunks_parsed}")
-    print("The pcap_extract_tool should return a list of chunks (even if it's a JSON string representing that list).")
-    print("Exiting AI_agent.py.")
+    print(f"Lỗi Nghiêm Trọng: data_chunks_parsed không phải là list như mong đợi bởi run_AIagent. Kiểu: {type(data_chunks_parsed)}")
+    print(f"Nội dung: {data_chunks_parsed}")
+    print("pcap_extract_tool phải trả về danh sách các phần (ngay cả khi đó là chuỗi JSON đại diện cho danh sách đó).")
+    print("Đang thoát AI_agent.py.")
     sys.exit(1)
 
 analysis_results = asyncio.run(run_AIagent(assistant_gemini, assistant_deepseek, assistant_qwen, data_chunks_parsed))

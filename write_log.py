@@ -27,7 +27,7 @@ def write_log_agents(gemini, deepseek, qwen, current_chunk_index, chunks, result
     gemini_log_file = os.path.join(log_dir, "gemini_log.txt")
     deepseek_log_file = os.path.join(log_dir, "deepseek_log.txt")
     llama_log_file = os.path.join(log_dir, "llama_log.txt")
-    #Ghi log Gemini
+
     with open(gemini_log_file, "a", encoding="utf-8") as f:
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         f.write(f"[{timestamp}] Phân tích phần {current_chunk_index+1}/{len(chunks)}\n")
@@ -68,28 +68,23 @@ def write_log_conclusion(overall_status, messages):
         f.write(f"\n\n## {timestamp}\n")
         f.write(f"## ĐÁNH GIÁ TỔNG HỢP\n\n")
 
-        # Extract status from assistant_writer's report
         final_status = "Không xác định"
         writer_content = ""
         
-        # Get the content from assistant_writer
         for message in messages:
             if message.source == "Assistant":
                 writer_content = message.content
                 f.write(writer_content)
                 print("Báo cáo tổng hợp đã được ghi vào file log.")
                 
-                # Extract status from TÓM TẮT NHANH section
                 if "### TÓM TẮT NHANH" in writer_content:
                     status_lines = writer_content.split("### TÓM TẮT NHANH")[1].split("\n")
                     for line in status_lines:
                         if "Trạng thái:" in line:
                             final_status = line.split("Trạng thái:")[1].strip()
                             break
-                        # Break if we've reached the next section
                         if line.strip().startswith("###"):
                             break
 
-        # Write the conclusion using the status from assistant_writer
         f.write(f"\n\n## KẾT LUẬN TỔNG THỂ\n")
         f.write(f"Hệ thống ở trạng thái {final_status}.\n")

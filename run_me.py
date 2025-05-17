@@ -161,29 +161,29 @@ DASHBOARD_TEMPLATE = """
     <meta charset="UTF-8">
     <title>Network Analysis Dashboard</title>
     <script>
-        // Store the current timestamp to check for updates
+        // Lưu timestamp hiện tại để kiểm tra cập nhật
         let lastAnalysisTime = "{{ analysis_timestamp }}";
         
-        // Function to check if there's a new analysis and reload if needed
+        // Hàm kiểm tra nếu có phân tích mới và tải lại trang nếu cần
         function checkForUpdates() {
             fetch('/analysis-timestamp')
                 .then(response => response.text())
                 .then(timestamp => {
                     if (timestamp !== lastAnalysisTime) {
-                        console.log("New analysis detected, reloading page");
+                        console.log("Phát hiện phân tích mới, đang tải lại trang");
                         window.location.reload();
                     } else {
-                        console.log("No new analysis, waiting...");
-                        setTimeout(checkForUpdates, 5000); // Check every 5 seconds
+                        console.log("Không có phân tích mới, đang chờ...");
+                        setTimeout(checkForUpdates, 5000); // Kiểm tra mỗi 5 giây
                     }
                 })
                 .catch(error => {
-                    console.error("Error checking for updates:", error);
-                    setTimeout(checkForUpdates, 5000); // Retry in 5 seconds
+                    console.error("Lỗi khi kiểm tra cập nhật:", error);
+                    setTimeout(checkForUpdates, 5000); // Thử lại sau 5 giây
                 });
         }
 
-        // Start checking for updates when page loads
+        // Bắt đầu kiểm tra cập nhật khi trang tải xong
         window.onload = function() {
             setTimeout(checkForUpdates, 5000);
         }
@@ -921,7 +921,7 @@ def get_analysis_timestamp():
         if os.path.exists(ANALYSIS_TIMESTAMP_FILE):
             with open(ANALYSIS_TIMESTAMP_FILE, 'r', encoding='utf-8') as f:
                 return f.read().strip()
-        return str(int(time.time()))  # Fallback to current time if file doesn't exist
+        return str(int(time.time()))  # Sử dụng thời gian hiện tại nếu file không tồn tại
     except Exception as e:
         print(f"[ERROR] Lỗi khi đọc timestamp phân tích: {e}")
         return str(int(time.time()))  # Fallback to current time
