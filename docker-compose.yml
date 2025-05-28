@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  network-analyzer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: network-analyzer
+    volumes:
+      - ./content:/app/content
+      - ./log:/app/log
+      - ./system_message_template:/app/system_message_template
+      - ./tools:/app/tools
+      - ./config:/app/config
+    ports:
+      - "5000:5000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    network_mode: "host" 
+    cap_add:
+      - NET_ADMIN 
+      - NET_RAW   
+    restart: "no"  
