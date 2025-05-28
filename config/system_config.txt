@@ -1,5 +1,5 @@
 # Giao diện bắt gói tin
-capture_interface="wlp3s0"
+capture_interface="eth0"
 
 # Thời gian bắt gói tin để lưu thành pcapng
 capture_duration=10

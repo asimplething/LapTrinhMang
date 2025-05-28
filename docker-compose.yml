@@ -1,5 +1,7 @@
 version: '3.8'
-
+networks:
+  mynet:
+    driver: bridge
 services:
   network-analyzer:
     build:
@@ -18,7 +20,8 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    network_mode: "host" 
+    networks: 
+      - mynet 
     cap_add:
       - NET_ADMIN 
       - NET_RAW   
